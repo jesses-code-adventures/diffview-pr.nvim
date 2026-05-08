@@ -453,7 +453,7 @@ local function open_thread_float(comments)
 	vim.bo[reply_buf].bufhidden = "wipe"
 	vim.bo[reply_buf].filetype = "markdown"
 	vim.bo[reply_buf].swapfile = false
-	open_panel(reply_buf, row + diff_height + comments_height + 4, reply_height, "Reply", true)
+	reply_win = open_panel(reply_buf, row + diff_height + comments_height + 4, reply_height, "Reply", true)
 
 	local function cleanup_temp_file()
 		if vim.uv.fs_stat(temp_path) then
@@ -464,7 +464,10 @@ local function open_thread_float(comments)
 	vim.api.nvim_create_autocmd("BufWipeout", {
 		buffer = reply_buf,
 		once = true,
-		callback = cleanup_temp_file,
+		callback = function()
+			cleanup_temp_file()
+			close_review_windows()
+		end,
 	})
 
 	vim.api.nvim_create_autocmd("BufWriteCmd", {
@@ -479,13 +482,20 @@ local function open_thread_float(comments)
 			if M.submit({ pr_number = pr.number, reply_to_id = root_id, body = body }) then
 				cleanup_temp_file()
 				vim.bo[reply_buf].modified = false
-				close_review_windows()
 			end
 		end,
 	})
 
 	for _, buf in ipairs({ diff_buf, thread_buf, reply_buf }) do
 		vim.keymap.set("n", "q", close_review_windows, { buffer = buf, desc = "Close PR review" })
+		vim.keymap.set("n", "<Leader>q", close_review_windows, { buffer = buf, desc = "Close PR review" })
+		vim.keymap.set("i", "<C-c>", function()
+			vim.cmd("stopinsert")
+			close_review_windows()
+		end, { buffer = buf, desc = "Close PR review" })
+		vim.keymap.set("i", "<Esc>", function()
+			vim.cmd("stopinsert")
+		end, { buffer = buf, desc = "Exit to normal mode" })
 		vim.keymap.set("n", "<C-w>j", function() focus_review_window(1) end,
 			{ buffer = buf, desc = "Next PR review pane" })
 		vim.keymap.set("n", "<C-w><Down>", function() focus_review_window(1) end,
@@ -681,6 +691,38 @@ function M.clear_buffer(bufnr)
 	end
 end
 
+function M.debug_state()
+	local ok, lib = pcall(require, "diffview.lib")
+	local view = ok and lib.get_current_view() or nil
+	local panel = view and view.panel
+	local panel_marks = {}
+	if panel and panel.bufid and vim.api.nvim_buf_is_valid(panel.bufid) then
+		panel_marks = vim.api.nvim_buf_get_extmarks(panel.bufid, panel_ns, 0, -1, { details = true })
+	end
+
+	local diff_buffers = {}
+	for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+		if vim.b[bufnr].diffview_pr_comment_side then
+			table.insert(diff_buffers, {
+				bufnr = bufnr,
+				name = vim.api.nvim_buf_get_name(bufnr),
+				side = vim.b[bufnr].diffview_pr_comment_side,
+				markers = vim.api.nvim_buf_get_extmarks(bufnr, ns, 0, -1, { details = true }),
+			})
+		end
+	end
+
+	print(vim.inspect({
+		module = debug.getinfo(1, "S").source,
+		pr = state.pr,
+		comments = state.comments and #state.comments or 0,
+		fetching = state.fetching,
+		pr_fetching = state.pr_fetching,
+		diff_buffers = diff_buffers,
+		panel_marks = panel_marks,
+	}))
+end
+
 function M.refresh()
 	state.comments = nil
 	local ok, lib = pcall(require, "diffview.lib")
@@ -741,4 +783,3 @@ function M.reply_to_comment_at_cursor()
 end
 
 return M
-
