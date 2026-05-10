@@ -2,6 +2,25 @@ local M = {}
 
 local ns = vim.api.nvim_create_namespace("diffview_pr_comments")
 local panel_ns = vim.api.nvim_create_namespace("diffview_pr_comment_panel")
+local augroup = vim.api.nvim_create_augroup("diffview_pr_comment", { clear = true })
+local defaults = {
+	comment_style = "minimal",
+	keymaps = {
+		enabled = true,
+		create_comment = "<leader>pc",
+		show_comments = "<leader>po",
+		open_comments_or_enter = "<CR>",
+		reply = "<leader>pR",
+		refresh = "<leader>pf",
+		approve = "<leader>pa",
+		request_changes = "<leader>pr",
+		close_pr = "<leader>px",
+		close_review_windows = "<leader>pq",
+		next_review_window = "<leader>pn",
+		previous_review_window = "<leader>pp",
+	},
+}
+local config = vim.deepcopy(defaults)
 local state = {
 	pr = nil,
 	comments = nil,
@@ -11,10 +30,24 @@ local state = {
 	fetching = false,
 	fetch_callbacks = {},
 	notified_pr = false,
+	review_windows = {},
+	render_context_by_buf = {},
+	tracked_buffers = {},
 }
 
 local function notify(msg, level)
 	vim.notify(msg, level or vim.log.levels.INFO, { title = "Diffview PR Comment" })
+end
+
+local function setup_highlights()
+	local normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
+	local comment = vim.api.nvim_get_hl(0, { name = "Comment", link = false })
+	local cursor_line = vim.api.nvim_get_hl(0, { name = "CursorLine", link = false })
+
+	vim.api.nvim_set_hl(0, "DiffviewPRCommentActive", {
+		fg = comment.fg or normal.fg,
+		bg = cursor_line.bg or normal.bg,
+	})
 end
 
 local function system(args, opts)
@@ -60,7 +93,7 @@ local function ensure_remote_contains_head()
 	return head
 end
 
-local function current_diffview_context()
+local function current_diffview_context(bufnr)
 	local ok, lib = pcall(require, "diffview.lib")
 	if not ok then
 		return nil, "diffview.nvim is not available"
@@ -76,7 +109,7 @@ local function current_diffview_context()
 		return nil, "could not determine the current Diffview file"
 	end
 
-	local side = vim.b.diffview_pr_comment_side
+	local side = bufnr and vim.b[bufnr].diffview_pr_comment_side or vim.b.diffview_pr_comment_side
 	if side ~= "LEFT" and side ~= "RIGHT" then
 		return nil, "focus a Diffview diff buffer before commenting"
 	end
@@ -87,6 +120,45 @@ local function current_diffview_context()
 	end
 
 	return { side = side, path = path }
+end
+
+local function attach_diffview_context(bufnr, ctx)
+	if not ctx then
+		return
+	end
+
+	if ctx.symbol == "a" then
+		vim.b[bufnr].diffview_pr_comment_side = "LEFT"
+	elseif ctx.symbol == "b" then
+		vim.b[bufnr].diffview_pr_comment_side = "RIGHT"
+	end
+end
+
+local function set_keymap(mode, lhs, rhs, bufnr, desc)
+	if not lhs or lhs == false then
+		return
+	end
+
+	vim.keymap.set(mode, lhs, rhs, { buffer = bufnr, desc = desc })
+end
+
+local function setup_buffer_keymaps(bufnr)
+	local keymaps = config.keymaps
+	if not keymaps or keymaps.enabled == false then
+		return
+	end
+
+	set_keymap("x", keymaps.create_comment, ":DiffviewPRComment<CR>", bufnr, "Create PR comment from selection")
+	set_keymap("n", keymaps.show_comments, ":DiffviewPRShowComments<CR>", bufnr, "Open PR comments at cursor")
+	set_keymap("n", keymaps.open_comments_or_enter, ":DiffviewPROpenCommentsOrEnter<CR>", bufnr, "Open PR comments at cursor")
+	set_keymap("n", keymaps.reply, ":DiffviewPRReply<CR>", bufnr, "Reply to PR comment at cursor")
+	set_keymap("n", keymaps.refresh, ":DiffviewPRRefresh<CR>", bufnr, "Refresh PR comments")
+	set_keymap("n", keymaps.approve, ":DiffviewPRReviewApprove<CR>", bufnr, "Approve PR")
+	set_keymap("n", keymaps.request_changes, ":DiffviewPRReviewRequestChanges<CR>", bufnr, "Request PR changes")
+	set_keymap("n", keymaps.close_pr, ":DiffviewPRReviewClose<CR>", bufnr, "Close PR")
+	set_keymap("n", keymaps.close_review_windows, ":DiffviewPRCloseReviewWindows<CR>", bufnr, "Close PR review windows")
+	set_keymap("n", keymaps.next_review_window, ":DiffviewPRNextReviewWindow<CR>", bufnr, "Next PR review window")
+	set_keymap("n", keymaps.previous_review_window, ":DiffviewPRPreviousReviewWindow<CR>", bufnr, "Previous PR review window")
 end
 
 local function current_pr()
@@ -106,6 +178,11 @@ local function current_pr()
 
 	state.pr = pr
 	return pr
+end
+
+local function pr_display_name(pr_or_number)
+	local number = type(pr_or_number) == "table" and pr_or_number.number or pr_or_number
+	return "PR #" .. tostring(number)
 end
 
 local function gh_async(args, callback)
@@ -171,6 +248,61 @@ end
 
 local function comment_side(comment)
 	return comment.side or comment.original_side or "RIGHT"
+end
+
+local function comment_author(comment)
+	return comment.user and comment.user.login or "unknown"
+end
+
+local function inline_comment_lines(comments, active)
+	local lines = {}
+	local header_hl = active and "DiffviewPRCommentActive" or "DiffviewFilePanelTitle"
+	local body_hl = active and "DiffviewPRCommentActive" or "Comment"
+
+	for index, comment in ipairs(comments) do
+		table.insert(lines, { { "  " .. comment_author(comment) .. " commented:", header_hl } })
+
+		local body_lines = vim.split(comment.body or "", "\n", { plain = true })
+		if #body_lines == 0 then
+			body_lines = { "" }
+		end
+
+		for _, body_line in ipairs(body_lines) do
+			table.insert(lines, { { "  " .. body_line, body_hl } })
+		end
+
+		if index ~= #comments then
+			table.insert(lines, { { "", body_hl } })
+		end
+	end
+
+	return lines
+end
+
+local function minimal_comment_lines(comments, active)
+	local first = comments[1]
+	local username = first and comment_author(first) or "someone"
+	local other_users = {}
+
+	for _, comment in ipairs(comments) do
+		local user = comment_author(comment)
+		if user ~= username then
+			other_users[user] = true
+		end
+	end
+
+	local others = vim.tbl_count(other_users)
+	local suffix = others == 0 and "" or " (and " .. others .. " other" .. (others == 1 and "" or "s") .. ")"
+	local hl = active and "DiffviewPRCommentActive" or "DiffviewFilePanelTitle"
+	return { { { "  " .. username .. " commented" .. suffix .. "...", hl } } }
+end
+
+local function comment_virt_lines(comments, active)
+	if config.comment_style == "minimal" then
+		return minimal_comment_lines(comments, active)
+	end
+
+	return inline_comment_lines(comments, active)
 end
 
 local function hydrate_comment_threads(comments)
@@ -241,26 +373,33 @@ local function render_comments(bufnr, ctx)
 		table.insert(state.comments_by_buf[bufnr][line], comment)
 	end
 
-	for line, line_comments in pairs(comments_by_line) do
-		local first = line_comments[1]
-		local username = first.user and first.user.login or "someone"
-		local other_users = {}
-		for _, comment in ipairs(line_comments) do
-			local comment_user = comment.user and comment.user.login or "someone"
-			if comment_user ~= username then
-				other_users[comment_user] = true
-			end
-		end
+	local active_line = vim.api.nvim_get_current_buf() == bufnr and vim.api.nvim_win_get_cursor(0)[1] or nil
 
-		local others = vim.tbl_count(other_users)
-		local suffix = others == 0 and "" or " (and " .. others .. " other" .. (others == 1 and "" or "s") .. ")"
+	for line, line_comments in pairs(comments_by_line) do
 		vim.api.nvim_buf_set_extmark(bufnr, ns, line - 1, 0, {
-			virt_lines = {
-				{ { "  " .. username .. " commented" .. suffix .. "...", "DiffviewFilePanelTitle" } },
-			},
-			virt_lines_above = true,
+			virt_lines = comment_virt_lines(line_comments, line == active_line),
+			virt_lines_above = config.comment_style == "minimal",
 		})
 	end
+end
+
+local function track_buffer(bufnr, ctx)
+	state.render_context_by_buf[bufnr] = ctx
+	if state.tracked_buffers[bufnr] then
+		return
+	end
+
+	state.tracked_buffers[bufnr] = true
+	vim.api.nvim_create_autocmd({ "CursorMoved", "WinEnter" }, {
+		group = augroup,
+		buffer = bufnr,
+		callback = function()
+			local render_ctx = state.render_context_by_buf[bufnr]
+			if render_ctx then
+				render_comments(bufnr, render_ctx)
+			end
+		end,
+	})
 end
 
 local function file_comment_counts()
@@ -355,6 +494,39 @@ local function fetch_comments(callback)
 	end)
 end
 
+local function close_review_windows()
+	for _, win in ipairs(state.review_windows) do
+		if vim.api.nvim_win_is_valid(win) then
+			vim.api.nvim_win_close(win, true)
+		end
+	end
+	state.review_windows = {}
+end
+
+local function focus_review_window(direction)
+	local wins = vim.tbl_filter(function(win)
+		return vim.api.nvim_win_is_valid(win)
+	end, state.review_windows)
+	state.review_windows = wins
+
+	if #wins == 0 then
+		return notify("no PR review window is open", vim.log.levels.INFO)
+	end
+
+	local current = vim.api.nvim_get_current_win()
+	local current_index = 1
+
+	for index, win in ipairs(wins) do
+		if win == current then
+			current_index = index
+			break
+		end
+	end
+
+	local next_index = ((current_index + direction - 1) % #wins) + 1
+	vim.api.nvim_set_current_win(wins[next_index])
+end
+
 local function open_thread_float(comments)
 	local pr, pr_err = current_pr()
 	if not pr then
@@ -388,32 +560,6 @@ local function open_thread_float(comments)
 		vim.wo[win].wrap = true
 		table.insert(wins, win)
 		return win
-	end
-
-	local function close_review_windows()
-		for _, win in ipairs(wins) do
-			if vim.api.nvim_win_is_valid(win) then
-				vim.api.nvim_win_close(win, true)
-			end
-		end
-	end
-
-	local function focus_review_window(direction)
-		local current = vim.api.nvim_get_current_win()
-		local current_index = 1
-
-		for index, win in ipairs(wins) do
-			if win == current then
-				current_index = index
-				break
-			end
-		end
-
-		local next_index = ((current_index + direction - 1) % #wins) + 1
-		local next_win = wins[next_index]
-		if next_win and vim.api.nvim_win_is_valid(next_win) then
-			vim.api.nvim_set_current_win(next_win)
-		end
 	end
 
 	local diff_buf = vim.api.nvim_create_buf(false, true)
@@ -453,7 +599,8 @@ local function open_thread_float(comments)
 	vim.bo[reply_buf].bufhidden = "wipe"
 	vim.bo[reply_buf].filetype = "markdown"
 	vim.bo[reply_buf].swapfile = false
-	reply_win = open_panel(reply_buf, row + diff_height + comments_height + 4, reply_height, "Reply", true)
+	open_panel(reply_buf, row + diff_height + comments_height + 4, reply_height, "Reply", true)
+	state.review_windows = wins
 
 	local function cleanup_temp_file()
 		if vim.uv.fs_stat(temp_path) then
@@ -486,35 +633,6 @@ local function open_thread_float(comments)
 		end,
 	})
 
-	for _, buf in ipairs({ diff_buf, thread_buf, reply_buf }) do
-		vim.keymap.set("n", "q", close_review_windows, { buffer = buf, desc = "Close PR review" })
-		vim.keymap.set("n", "<Leader>q", close_review_windows, { buffer = buf, desc = "Close PR review" })
-		vim.keymap.set("i", "<C-c>", function()
-			vim.cmd("stopinsert")
-			close_review_windows()
-		end, { buffer = buf, desc = "Close PR review" })
-		vim.keymap.set("i", "<Esc>", function()
-			vim.cmd("stopinsert")
-		end, { buffer = buf, desc = "Exit to normal mode" })
-		vim.keymap.set("n", "<C-w>j", function() focus_review_window(1) end,
-			{ buffer = buf, desc = "Next PR review pane" })
-		vim.keymap.set("n", "<C-w><Down>", function() focus_review_window(1) end,
-			{ buffer = buf, desc = "Next PR review pane" })
-		vim.keymap.set("n", "<C-w>l", function() focus_review_window(1) end,
-			{ buffer = buf, desc = "Next PR review pane" })
-		vim.keymap.set("n", "<C-w><Right>", function() focus_review_window(1) end,
-			{ buffer = buf, desc = "Next PR review pane" })
-		vim.keymap.set("n", "<C-w>k", function() focus_review_window(-1) end,
-			{ buffer = buf, desc = "Previous PR review pane" })
-		vim.keymap.set("n", "<C-w><Up>", function() focus_review_window(-1) end,
-			{ buffer = buf, desc = "Previous PR review pane" })
-		vim.keymap.set("n", "<C-w>h", function() focus_review_window(-1) end,
-			{ buffer = buf, desc = "Previous PR review pane" })
-		vim.keymap.set("n", "<C-w><Left>", function() focus_review_window(-1) end,
-			{ buffer = buf, desc = "Previous PR review pane" })
-	end
-
-	vim.cmd.startinsert()
 end
 
 local function open_comment_float(comment, title)
@@ -550,11 +668,6 @@ local function open_comment_float(comment, title)
 		end
 	end
 
-	vim.api.nvim_buf_create_user_command(buf, "Wq", function()
-		vim.cmd.write()
-		vim.cmd.quit()
-	end, {})
-
 	vim.api.nvim_create_autocmd("BufWipeout", {
 		buffer = buf,
 		once = true,
@@ -578,11 +691,85 @@ local function open_comment_float(comment, title)
 		end,
 	})
 
-	vim.cmd.startinsert()
 end
 
 local function open_reply_float(parent_comment)
 	open_thread_float({ parent_comment })
+end
+
+local function open_review_float(config)
+	local temp_path = vim.fn.tempname() .. ".md"
+	local width = math.min(88, math.floor(vim.o.columns * 0.75))
+	local height = math.min(12, math.floor(vim.o.lines * 0.3))
+	local row = math.floor((vim.o.lines - height) / 2)
+	local col = math.floor((vim.o.columns - width) / 2)
+	local buf = vim.api.nvim_create_buf(false, true)
+	local win = vim.api.nvim_open_win(buf, true, {
+		relative = "editor",
+		row = row,
+		col = col,
+		width = width,
+		height = height,
+		style = "minimal",
+		border = "rounded",
+		title = " " .. config.title .. " ",
+		title_pos = "center",
+	})
+
+	vim.api.nvim_buf_set_name(buf, temp_path)
+	vim.bo[buf].buftype = "acwrite"
+	vim.bo[buf].bufhidden = "wipe"
+	vim.bo[buf].filetype = "markdown"
+	vim.bo[buf].swapfile = false
+	vim.wo[win].winhighlight = "Normal:Normal,NormalFloat:Normal"
+	vim.wo[win].wrap = true
+
+	if config.placeholder then
+		vim.api.nvim_buf_set_extmark(buf, ns, 0, 0, {
+			virt_lines = { { { config.placeholder, "Comment" } } },
+			virt_lines_above = true,
+		})
+	end
+
+	local function cleanup_temp_file()
+		if vim.uv.fs_stat(temp_path) then
+			vim.fn.delete(temp_path)
+		end
+	end
+
+	vim.api.nvim_create_autocmd("BufWipeout", {
+		buffer = buf,
+		once = true,
+		callback = cleanup_temp_file,
+	})
+
+	vim.api.nvim_create_autocmd("BufWriteCmd", {
+		buffer = buf,
+		callback = function()
+			local body = vim.trim(table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n"))
+			if config.require_body and body == "" then
+				notify("a reason is required for " .. config.title, vim.log.levels.WARN)
+				return
+			end
+
+			if config.submit_fn(body) then
+				cleanup_temp_file()
+				vim.bo[buf].modified = false
+			end
+		end,
+	})
+
+end
+
+function M.setup(opts)
+	opts = opts or {}
+	config = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts)
+	setup_highlights()
+
+	if config.comment_style ~= "minimal" and config.comment_style ~= "expanded" then
+		notify("invalid comment_style: " .. tostring(config.comment_style), vim.log.levels.WARN)
+		config.comment_style = defaults.comment_style
+	end
 end
 
 function M.open(line1, line2)
@@ -625,7 +812,7 @@ function M.submit(comment)
 			return false
 		end
 
-		notify("reply created on PR #" .. comment.pr_number)
+		notify("reply created on " .. pr_display_name(comment.pr_number))
 		state.comments = nil
 		return true
 	end
@@ -660,21 +847,116 @@ function M.submit(comment)
 		return false
 	end
 
-	notify("comment created on PR #" .. comment.pr_number)
+	notify("comment created on " .. pr_display_name(comment.pr_number))
 	state.comments = nil
 	return true
 end
 
-function M.attach_diffview_buffer(bufnr)
-	local ctx, ctx_err = current_diffview_context()
-	if not ctx then
-		return notify(ctx_err, vim.log.levels.WARN)
+function M.pr_display_name(pr_or_number)
+	return pr_display_name(pr_or_number)
+end
+
+function M.approve()
+	local head, head_err = ensure_remote_contains_head()
+	if not head then
+		return notify(head_err, vim.log.levels.ERROR)
 	end
 
+	local pr, pr_err = current_pr()
+	if not pr then
+		return notify(pr_err, vim.log.levels.ERROR)
+	end
+
+	open_review_float({
+		title = "Approve " .. pr_display_name(pr),
+		placeholder = "Leave an optional approval message...",
+		require_body = false,
+		submit_fn = function(body)
+			local args = { "pr", "review", tostring(pr.number), "--approve" }
+			if body and body ~= "" then
+				vim.list_extend(args, { "--body", body })
+			end
+			local _, err = gh(args)
+			if err then
+				notify(err, vim.log.levels.ERROR)
+				return false
+			end
+			notify("Approved " .. pr_display_name(pr))
+			state.comments = nil
+			return true
+		end,
+	})
+end
+
+function M.request_changes()
+	local head, head_err = ensure_remote_contains_head()
+	if not head then
+		return notify(head_err, vim.log.levels.ERROR)
+	end
+
+	local pr, pr_err = current_pr()
+	if not pr then
+		return notify(pr_err, vim.log.levels.ERROR)
+	end
+
+	open_review_float({
+		title = "Request Changes on " .. pr_display_name(pr),
+		placeholder = "Explain what needs to change...",
+		require_body = true,
+		submit_fn = function(body)
+			local _, err = gh({ "pr", "review", tostring(pr.number), "--request-changes", "--body", body })
+			if err then
+				notify(err, vim.log.levels.ERROR)
+				return false
+			end
+			notify("Requested changes on " .. pr_display_name(pr))
+			state.comments = nil
+			return true
+		end,
+	})
+end
+
+function M.close_pr()
+	local pr, pr_err = current_pr()
+	if not pr then
+		return notify(pr_err, vim.log.levels.ERROR)
+	end
+
+	open_review_float({
+		title = "Close " .. pr_display_name(pr),
+		placeholder = "Leave an optional comment...",
+		require_body = false,
+		submit_fn = function(body)
+			local args = { "pr", "close", tostring(pr.number) }
+			if body and body ~= "" then
+				vim.list_extend(args, { "--comment", body })
+			end
+			local _, err = gh(args)
+			if err then
+				notify(err, vim.log.levels.ERROR)
+				return false
+			end
+			notify("Closed " .. pr_display_name(pr))
+			state.comments = nil
+			state.pr = nil
+			return true
+		end,
+	})
+end
+
+function M.attach_diffview_buffer(bufnr, ctx)
+	attach_diffview_context(bufnr, ctx)
+
 	vim.defer_fn(function()
+		local ctx, ctx_err = current_diffview_context(bufnr)
+		if not ctx then
+			return notify(ctx_err, vim.log.levels.WARN)
+		end
+
+		track_buffer(bufnr, ctx)
 		fetch_comments(function()
 			if state.pr and not state.notified_pr then
-				notify("PR #" .. state.pr.number .. " associated with this branch")
+				notify(pr_display_name(state.pr) .. " associated with this branch")
 				state.notified_pr = true
 			end
 
@@ -684,10 +966,17 @@ function M.attach_diffview_buffer(bufnr)
 	end, 100)
 end
 
+function M.diff_buf_win_enter(bufnr, _, ctx)
+	setup_buffer_keymaps(bufnr)
+	M.attach_diffview_buffer(bufnr, ctx)
+end
+
 function M.clear_buffer(bufnr)
 	if vim.api.nvim_buf_is_valid(bufnr) then
 		vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
 		state.comments_by_buf[bufnr] = nil
+		state.render_context_by_buf[bufnr] = nil
+		state.tracked_buffers[bufnr] = nil
 	end
 end
 
@@ -781,5 +1070,38 @@ function M.reply_to_comment_at_cursor()
 
 	open_reply_float(comments[1])
 end
+
+function M.close_review_windows()
+	close_review_windows()
+end
+
+function M.next_review_window()
+	focus_review_window(1)
+end
+
+function M.previous_review_window()
+	focus_review_window(-1)
+end
+
+vim.api.nvim_create_user_command("DiffviewPRComment", function(opts)
+	M.open(opts.line1, opts.line2)
+end, { range = true, force = true })
+vim.api.nvim_create_user_command("DiffviewPRShowComments", M.show_comments_at_cursor, { force = true })
+vim.api.nvim_create_user_command("DiffviewPROpenCommentsOrEnter", M.open_comments_at_cursor_or_enter, { force = true })
+vim.api.nvim_create_user_command("DiffviewPRReply", M.reply_to_comment_at_cursor, { force = true })
+vim.api.nvim_create_user_command("DiffviewPRRefresh", M.refresh, { force = true })
+vim.api.nvim_create_user_command("DiffviewPRDebugState", M.debug_state, { force = true })
+vim.api.nvim_create_user_command("DiffviewPRReviewApprove", M.approve, { force = true })
+vim.api.nvim_create_user_command("DiffviewPRReviewRequestChanges", M.request_changes, { force = true })
+vim.api.nvim_create_user_command("DiffviewPRReviewClose", M.close_pr, { force = true })
+vim.api.nvim_create_user_command("DiffviewPRCloseReviewWindows", M.close_review_windows, { force = true })
+vim.api.nvim_create_user_command("DiffviewPRNextReviewWindow", M.next_review_window, { force = true })
+vim.api.nvim_create_user_command("DiffviewPRPreviousReviewWindow", M.previous_review_window, { force = true })
+
+setup_highlights()
+vim.api.nvim_create_autocmd("ColorScheme", {
+	group = augroup,
+	callback = setup_highlights,
+})
 
 return M
