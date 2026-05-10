@@ -1,13 +1,13 @@
 local M = {}
-local config = require("diffview_pr_comment.config").values
-local state = require("diffview_pr_comment.state")
-local comments = require("diffview_pr_comment.comments")
+local config = require("diffview_pr.config").values
+local state = require("diffview_pr.state")
+local comments = require("diffview_pr.comments")
 
 M.ns = vim.api.nvim_create_namespace("diffview_pr_comments")
 M.panel_ns = vim.api.nvim_create_namespace("diffview_pr_comment_panel")
 local ns = M.ns
 local panel_ns = M.panel_ns
-local augroup = vim.api.nvim_create_augroup("diffview_pr_comment", { clear = false })
+local augroup = vim.api.nvim_create_augroup("diffview_pr", { clear = false })
 
 local function inline_comment_lines(comment_list, active)
 	local lines = {}

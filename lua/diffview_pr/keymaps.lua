@@ -1,7 +1,7 @@
 local M = {}
-local config = require("diffview_pr_comment.config").values
-local state = require("diffview_pr_comment.state")
-local diffview = require("diffview_pr_comment.diffview")
+local config = require("diffview_pr.config").values
+local state = require("diffview_pr.state")
+local diffview = require("diffview_pr.diffview")
 
 local function set_keymap(mode, lhs, rhs, bufnr, desc)
 	if not lhs or lhs == false then

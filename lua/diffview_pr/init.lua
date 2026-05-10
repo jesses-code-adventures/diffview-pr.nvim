@@ -1,18 +1,18 @@
 local M = {}
 
-local commands = require("diffview_pr_comment.commands")
-local comments = require("diffview_pr_comment.comments")
-local config_module = require("diffview_pr_comment.config")
-local diffview = require("diffview_pr_comment.diffview")
-local github = require("diffview_pr_comment.github")
-local highlights = require("diffview_pr_comment.highlights")
-local keymaps = require("diffview_pr_comment.keymaps")
-local notify = require("diffview_pr_comment.notify")
-local renderer = require("diffview_pr_comment.renderer")
-local state = require("diffview_pr_comment.state")
-local windows = require("diffview_pr_comment.windows")
+local commands = require("diffview_pr.commands")
+local comments = require("diffview_pr.comments")
+local config_module = require("diffview_pr.config")
+local diffview = require("diffview_pr.diffview")
+local github = require("diffview_pr.github")
+local highlights = require("diffview_pr.highlights")
+local keymaps = require("diffview_pr.keymaps")
+local notify = require("diffview_pr.notify")
+local renderer = require("diffview_pr.renderer")
+local state = require("diffview_pr.state")
+local windows = require("diffview_pr.windows")
 
-local augroup = vim.api.nvim_create_augroup("diffview_pr_comment", { clear = true })
+local augroup = vim.api.nvim_create_augroup("diffview_pr", { clear = true })
 local config = config_module.values
 local defaults = config_module.defaults
 local gh_async = github.gh_async
@@ -392,11 +392,11 @@ function M.debug_state()
 
 	local diff_buffers = {}
 	for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
-		if vim.b[bufnr].diffview_pr_comment_side then
+		if vim.b[bufnr].diffview_pr_side then
 			table.insert(diff_buffers, {
 				bufnr = bufnr,
 				name = vim.api.nvim_buf_get_name(bufnr),
-				side = vim.b[bufnr].diffview_pr_comment_side,
+				side = vim.b[bufnr].diffview_pr_side,
 				markers = vim.api.nvim_buf_get_extmarks(bufnr, renderer.ns, 0, -1, { details = true }),
 			})
 		end

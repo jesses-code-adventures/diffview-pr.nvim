@@ -1,6 +1,6 @@
 local M = {}
-local github = require("diffview_pr_comment.github")
-local notify = require("diffview_pr_comment.notify")
+local github = require("diffview_pr.github")
+local notify = require("diffview_pr.notify")
 local git = github.git
 
 function M.ensure_remote_contains_head()
@@ -37,7 +37,7 @@ function M.current_context(bufnr)
 		return nil, "could not determine the current Diffview file"
 	end
 
-	local side = bufnr and vim.b[bufnr].diffview_pr_comment_side or vim.b.diffview_pr_comment_side
+	local side = bufnr and vim.b[bufnr].diffview_pr_side or vim.b.diffview_pr_side
 	if side ~= "LEFT" and side ~= "RIGHT" then
 		return nil, "focus a Diffview diff buffer before commenting"
 	end
@@ -56,9 +56,9 @@ function M.attach_context(bufnr, ctx)
 	end
 
 	if ctx.symbol == "a" then
-		vim.b[bufnr].diffview_pr_comment_side = "LEFT"
+		vim.b[bufnr].diffview_pr_side = "LEFT"
 	elseif ctx.symbol == "b" then
-		vim.b[bufnr].diffview_pr_comment_side = "RIGHT"
+		vim.b[bufnr].diffview_pr_side = "RIGHT"
 	end
 end
 
@@ -80,7 +80,7 @@ function M.focus_target(target)
 	local function focus_loaded_target()
 		for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
 			local bufnr = vim.api.nvim_win_get_buf(win)
-			if vim.b[bufnr].diffview_pr_comment_side == target.side then
+			if vim.b[bufnr].diffview_pr_side == target.side then
 				vim.api.nvim_set_current_win(win)
 				vim.api.nvim_win_set_cursor(win, { target.line, 0 })
 				return true

@@ -1,7 +1,7 @@
 local M = {}
-local state = require("diffview_pr_comment.state")
-local notify = require("diffview_pr_comment.notify")
-local ns = require("diffview_pr_comment.renderer").ns
+local state = require("diffview_pr.state")
+local notify = require("diffview_pr.notify")
+local ns = require("diffview_pr.renderer").ns
 local deps = {}
 
 function M.setup(opts)

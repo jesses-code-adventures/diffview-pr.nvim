@@ -26,12 +26,7 @@ vim.pack.add {
 }
 
 -- lazy.nvim
-{
-  "jesses-code-adventures/diffview-pr.nvim",
-}
-
--- packer.nvim
-use "jesses-code-adventures/diffview-pr.vim"
+{ "jesses-code-adventures/diffview-pr.nvim" }
 ```
 
 ## Setup
@@ -39,7 +34,7 @@ use "jesses-code-adventures/diffview-pr.vim"
 The plugin activates through diffview.nvim's `hooks.diff_buf_win_enter` callback. Wire it up in your diffview setup:
 
 ```lua
-require("diffview_pr_comment").setup({
+require("diffview_pr").setup({
   -- "expanded" shows full inline comment threads.
   -- "minimal" shows the previous collapsed one-line summary.
   comment_style = "minimal",
@@ -52,7 +47,7 @@ require("diffview_pr_comment").setup({
 
 require("diffview").setup({
   hooks = {
-    diff_buf_win_enter = require("diffview_pr_comment").diff_buf_win_enter,
+    diff_buf_win_enter = require("diffview_pr").diff_buf_win_enter,
   },
 })
 ```
@@ -108,7 +103,7 @@ Use native `:w`, `:q`, and `:wq` in comment, reply, and review editor floats. Sa
 ## API
 
 ```lua
-local pr = require("diffview_pr_comment")
+local pr = require("diffview_pr")
 
 pr.setup({ comment_style = "minimal" }) -- Configure inline comment rendering
 pr.diff_buf_win_enter(bufnr, winid, ctx) -- Diffview hook entrypoint with default keymaps

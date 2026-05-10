@@ -1,6 +1,6 @@
 local M = {}
-local state = require("diffview_pr_comment.state")
-local diffview = require("diffview_pr_comment.diffview")
+local state = require("diffview_pr.state")
+local diffview = require("diffview_pr.diffview")
 
 function M.pr_display_name(pr_or_number)
 	local number = type(pr_or_number) == "table" and pr_or_number.number or pr_or_number
