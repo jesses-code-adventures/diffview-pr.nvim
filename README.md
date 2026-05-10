@@ -60,6 +60,8 @@ Default keymaps installed by the hook:
 | `<CR>` | normal | `:DiffviewPROpenCommentsOrEnter` |
 | `<leader>pR` | normal | `:DiffviewPRReply` |
 | `<leader>pf` | normal | `:DiffviewPRRefresh` |
+| `]r` | normal | `:DiffviewPRNextComment` |
+| `[r` | normal | `:DiffviewPRPreviousComment` |
 | `<leader>pa` | normal | `:DiffviewPRReviewApprove` |
 | `<leader>pr` | normal | `:DiffviewPRReviewRequestChanges` |
 | `<leader>px` | normal | `:DiffviewPRReviewClose` |
@@ -76,6 +78,8 @@ Default keymaps installed by the hook:
 | `:DiffviewPROpenCommentsOrEnter` | normal | Show PR comments at cursor, or pass through `<CR>` |
 | `:DiffviewPRReply` | normal | Reply to the PR comment thread at cursor |
 | `:DiffviewPRRefresh` | normal | Re-fetch PR comments from GitHub |
+| `:DiffviewPRNextComment` | normal | Jump to the next PR comment in the current Diffview |
+| `:DiffviewPRPreviousComment` | normal | Jump to the previous PR comment in the current Diffview |
 | `:DiffviewPRReviewApprove` | normal | Approve the PR with an optional message |
 | `:DiffviewPRReviewRequestChanges` | normal | Request changes with a required message |
 | `:DiffviewPRReviewClose` | normal | Close the PR with an optional comment |
@@ -104,6 +108,8 @@ pr.setup({ comment_style = "minimal" }) -- Configure inline comment rendering
 pr.diff_buf_win_enter(bufnr, winid, ctx) -- Diffview hook entrypoint with default keymaps
 pr.attach_diffview_buffer(bufnr, ctx) -- Attach comment overlay to a diff buffer
 pr.refresh()                     -- Re-fetch comments from GitHub
+pr.next_comment()                -- Jump to next PR comment in the current Diffview
+pr.previous_comment()            -- Jump to previous PR comment in the current Diffview
 pr.show_comments_at_cursor()     -- Open floating thread for comments on current line
 pr.open_comments_at_cursor_or_enter() -- Show comments or pass through <CR>
 pr.reply_to_comment_at_cursor()  -- Open reply float for thread at cursor

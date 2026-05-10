@@ -12,6 +12,8 @@ local defaults = {
 		open_comments_or_enter = "<CR>",
 		reply = "<leader>pR",
 		refresh = "<leader>pf",
+		next_comment = "]r",
+		previous_comment = "[r",
 		approve = "<leader>pa",
 		request_changes = "<leader>pr",
 		close_pr = "<leader>px",
@@ -33,6 +35,7 @@ local state = {
 	review_windows = {},
 	render_context_by_buf = {},
 	tracked_buffers = {},
+	keymaps_by_buf = {},
 }
 
 local function notify(msg, level)
@@ -147,18 +150,44 @@ local function setup_buffer_keymaps(bufnr)
 	if not keymaps or keymaps.enabled == false then
 		return
 	end
+	if state.keymaps_by_buf[bufnr] then
+		return
+	end
+
+	state.keymaps_by_buf[bufnr] = true
 
 	set_keymap("x", keymaps.create_comment, ":DiffviewPRComment<CR>", bufnr, "Create PR comment from selection")
 	set_keymap("n", keymaps.show_comments, ":DiffviewPRShowComments<CR>", bufnr, "Open PR comments at cursor")
 	set_keymap("n", keymaps.open_comments_or_enter, ":DiffviewPROpenCommentsOrEnter<CR>", bufnr, "Open PR comments at cursor")
 	set_keymap("n", keymaps.reply, ":DiffviewPRReply<CR>", bufnr, "Reply to PR comment at cursor")
 	set_keymap("n", keymaps.refresh, ":DiffviewPRRefresh<CR>", bufnr, "Refresh PR comments")
+	set_keymap("n", keymaps.next_comment, ":DiffviewPRNextComment<CR>", bufnr, "Next PR comment")
+	set_keymap("n", keymaps.previous_comment, ":DiffviewPRPreviousComment<CR>", bufnr, "Previous PR comment")
 	set_keymap("n", keymaps.approve, ":DiffviewPRReviewApprove<CR>", bufnr, "Approve PR")
 	set_keymap("n", keymaps.request_changes, ":DiffviewPRReviewRequestChanges<CR>", bufnr, "Request PR changes")
 	set_keymap("n", keymaps.close_pr, ":DiffviewPRReviewClose<CR>", bufnr, "Close PR")
 	set_keymap("n", keymaps.close_review_windows, ":DiffviewPRCloseReviewWindows<CR>", bufnr, "Close PR review windows")
 	set_keymap("n", keymaps.next_review_window, ":DiffviewPRNextReviewWindow<CR>", bufnr, "Next PR review window")
 	set_keymap("n", keymaps.previous_review_window, ":DiffviewPRPreviousReviewWindow<CR>", bufnr, "Previous PR review window")
+end
+
+local function setup_panel_keymaps()
+	local keymaps = config.keymaps
+	if not keymaps or keymaps.enabled == false then
+		return
+	end
+
+	local ok, lib = pcall(require, "diffview.lib")
+	local view = ok and lib.get_current_view() or nil
+	local panel = view and view.panel
+	local bufnr = panel and panel.bufid
+	if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) or state.keymaps_by_buf[bufnr] then
+		return
+	end
+
+	state.keymaps_by_buf[bufnr] = true
+	set_keymap("n", keymaps.next_comment, ":DiffviewPRNextComment<CR>", bufnr, "Next PR comment")
+	set_keymap("n", keymaps.previous_comment, ":DiffviewPRPreviousComment<CR>", bufnr, "Previous PR comment")
 end
 
 local function current_pr()
@@ -448,6 +477,152 @@ local function render_panel_comments()
 				end
 			end
 		end
+	end
+end
+
+local function current_diffview_view()
+	local ok, lib = pcall(require, "diffview.lib")
+	if not ok then
+		return nil
+	end
+
+	return lib.get_current_view()
+end
+
+local function diffview_file_order(view)
+	local files = view and view.panel and view.panel.ordered_file_list and view.panel:ordered_file_list() or {}
+	local order = {}
+
+	for index, file in ipairs(files) do
+		if file.path then
+			order[file.path] = { index = index, file = file }
+		end
+		if file.oldpath then
+			order[file.oldpath] = { index = index, file = file }
+		end
+	end
+
+	return order
+end
+
+local function comment_targets_for_view(view)
+	local order = diffview_file_order(view)
+	local seen = {}
+	local targets = {}
+
+	for _, comment in ipairs(state.comments or {}) do
+		local line = comment_line(comment)
+		local file_info = comment.path and order[comment.path]
+		if line and file_info then
+			local side = comment_side(comment)
+			local key = table.concat({ comment.path, side, tostring(line) }, "\0")
+			if not seen[key] then
+				seen[key] = true
+				table.insert(targets, {
+					file = file_info.file,
+					file_index = file_info.index,
+					path = comment.path,
+					side = side,
+					line = line,
+				})
+			end
+		end
+	end
+
+	table.sort(targets, function(a, b)
+		if a.file_index ~= b.file_index then
+			return a.file_index < b.file_index
+		end
+
+		if a.side ~= b.side then
+			return a.side < b.side
+		end
+
+		return a.line < b.line
+	end)
+
+	return targets
+end
+
+local function current_comment_position(view)
+	local ctx = current_diffview_context(vim.api.nvim_get_current_buf())
+	if ctx then
+		local order = diffview_file_order(view)
+		local file_info = order[ctx.path]
+		if file_info then
+			return {
+				file_index = file_info.index,
+				path = ctx.path,
+				side = ctx.side,
+				line = vim.api.nvim_win_get_cursor(0)[1],
+			}
+		end
+	end
+end
+
+local function target_after(targets, pos)
+	if not pos then
+		return targets[1]
+	end
+
+	for _, target in ipairs(targets) do
+		if target.file_index > pos.file_index
+			or (target.file_index == pos.file_index and target.side > pos.side)
+			or (target.file_index == pos.file_index and target.side == pos.side and target.line > pos.line)
+		then
+			return target
+		end
+	end
+
+	return targets[1]
+end
+
+local function target_before(targets, pos)
+	if not pos then
+		return targets[1]
+	end
+
+	for index = #targets, 1, -1 do
+		local target = targets[index]
+		if target.file_index < pos.file_index
+			or (target.file_index == pos.file_index and target.side < pos.side)
+			or (target.file_index == pos.file_index and target.side == pos.side and target.line < pos.line)
+		then
+			return target
+		end
+	end
+
+	return targets[#targets]
+end
+
+local function focus_target(target)
+	local view = current_diffview_view()
+	if not view then
+		return notify("this command can only be used from Diffview", vim.log.levels.WARN)
+	end
+
+	local function focus_loaded_target()
+		for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+			local bufnr = vim.api.nvim_win_get_buf(win)
+			if vim.b[bufnr].diffview_pr_comment_side == target.side then
+				vim.api.nvim_set_current_win(win)
+				vim.api.nvim_win_set_cursor(win, { target.line, 0 })
+				return true
+			end
+		end
+
+		return false
+	end
+
+	if view.panel and view.panel.cur_file ~= target.file then
+		view:set_file(target.file, true, true)
+		vim.defer_fn(focus_loaded_target, 150)
+		return
+	end
+
+	if not focus_loaded_target() then
+		view:set_file(target.file, true, true)
+		vim.defer_fn(focus_loaded_target, 150)
 	end
 end
 
@@ -968,6 +1143,7 @@ end
 
 function M.diff_buf_win_enter(bufnr, _, ctx)
 	setup_buffer_keymaps(bufnr)
+	setup_panel_keymaps()
 	M.attach_diffview_buffer(bufnr, ctx)
 end
 
@@ -1059,6 +1235,32 @@ function M.open_comments_at_cursor_or_enter()
 	vim.api.nvim_feedkeys(keys, "n", false)
 end
 
+local function navigate_comment(direction)
+	fetch_comments(function()
+		local view = current_diffview_view()
+		if not view then
+			return notify("this command can only be used from Diffview", vim.log.levels.WARN)
+		end
+
+		local targets = comment_targets_for_view(view)
+		if #targets == 0 then
+			return notify("no PR comments in this Diffview", vim.log.levels.INFO)
+		end
+
+		local pos = current_comment_position(view)
+		local target = direction > 0 and target_after(targets, pos) or target_before(targets, pos)
+		focus_target(target)
+	end)
+end
+
+function M.next_comment()
+	navigate_comment(1)
+end
+
+function M.previous_comment()
+	navigate_comment(-1)
+end
+
 function M.reply_to_comment_at_cursor()
 	local bufnr = vim.api.nvim_get_current_buf()
 	local line = vim.api.nvim_win_get_cursor(0)[1]
@@ -1090,6 +1292,8 @@ vim.api.nvim_create_user_command("DiffviewPRShowComments", M.show_comments_at_cu
 vim.api.nvim_create_user_command("DiffviewPROpenCommentsOrEnter", M.open_comments_at_cursor_or_enter, { force = true })
 vim.api.nvim_create_user_command("DiffviewPRReply", M.reply_to_comment_at_cursor, { force = true })
 vim.api.nvim_create_user_command("DiffviewPRRefresh", M.refresh, { force = true })
+vim.api.nvim_create_user_command("DiffviewPRNextComment", M.next_comment, { force = true })
+vim.api.nvim_create_user_command("DiffviewPRPreviousComment", M.previous_comment, { force = true })
 vim.api.nvim_create_user_command("DiffviewPRDebugState", M.debug_state, { force = true })
 vim.api.nvim_create_user_command("DiffviewPRReviewApprove", M.approve, { force = true })
 vim.api.nvim_create_user_command("DiffviewPRReviewRequestChanges", M.request_changes, { force = true })
