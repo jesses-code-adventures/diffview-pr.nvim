@@ -1,88 +1,24 @@
 local M = {}
+local config_module = require("diffview_pr_comment.config")
+local state = require("diffview_pr_comment.state")
+local notify = require("diffview_pr_comment.notify")
+local github = require("diffview_pr_comment.github")
+local highlights = require("diffview_pr_comment.highlights")
+local commands = require("diffview_pr_comment.commands")
 
 local ns = vim.api.nvim_create_namespace("diffview_pr_comments")
 local panel_ns = vim.api.nvim_create_namespace("diffview_pr_comment_panel")
 local augroup = vim.api.nvim_create_augroup("diffview_pr_comment", { clear = true })
-local defaults = {
-	comment_style = "minimal",
-	keymaps = {
-		enabled = true,
-		create_comment = "<leader>pc",
-		show_comments = "<leader>po",
-		open_comments_or_enter = "<CR>",
-		reply = "<leader>pR",
-		refresh = "<leader>pf",
-		next_comment = "]r",
-		previous_comment = "[r",
-		approve = "<leader>pa",
-		request_changes = "<leader>pr",
-		close_pr = "<leader>px",
-		close_review_windows = "<leader>pq",
-		next_review_window = "<leader>pn",
-		previous_review_window = "<leader>pp",
-	},
-}
-local config = vim.deepcopy(defaults)
+local defaults = config_module.defaults
+local config = config_module.values
 local current_diffview_view
-local state = {
-	pr = nil,
-	comments = nil,
-	comments_by_buf = {},
-	pr_fetching = false,
-	pr_callbacks = {},
-	fetching = false,
-	fetch_callbacks = {},
-	notified_pr = false,
-	review_windows = {},
-	render_context_by_buf = {},
-	tracked_buffers = {},
-	keymaps_by_buf = {},
-	registered_diffview_help = false,
-}
 
-local function notify(msg, level)
-	vim.notify(msg, level or vim.log.levels.INFO, { title = "Diffview PR Comment" })
-end
+local setup_highlights = highlights.setup
 
-local function setup_highlights()
-	local normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
-	local comment = vim.api.nvim_get_hl(0, { name = "Comment", link = false })
-	local cursor_line = vim.api.nvim_get_hl(0, { name = "CursorLine", link = false })
-
-	vim.api.nvim_set_hl(0, "DiffviewPRCommentActive", {
-		fg = comment.fg or normal.fg,
-		bg = cursor_line.bg or normal.bg,
-	})
-end
-
-local function system(args, opts)
-	opts = opts or {}
-	local result = vim.system(args, { text = true, cwd = opts.cwd }):wait()
-	local stdout = vim.trim(result.stdout or "")
-	local stderr = vim.trim(result.stderr or "")
-
-	if result.code ~= 0 then
-		return nil, stderr ~= "" and stderr or stdout
-	end
-
-	return stdout, nil
-end
-
-local function git(args)
-	local cmd = { "git" }
-	vim.list_extend(cmd, args)
-	return system(cmd)
-end
-
-local function gh(args)
-	local cmd = { "gh" }
-	vim.list_extend(cmd, args)
-	return system(cmd)
-end
-
-local function is_no_pr_error(err)
-	return type(err) == "string" and err:lower():find("no pull requests", 1, true) ~= nil
-end
+local git = github.git
+local gh = github.gh
+local gh_async = github.gh_async
+local is_no_pr_error = github.is_no_pr_error
 
 local function ensure_remote_contains_head()
 	local head, head_err = git({ "rev-parse", "HEAD" })
@@ -301,24 +237,6 @@ end
 local function pr_display_name(pr_or_number)
 	local number = type(pr_or_number) == "table" and pr_or_number.number or pr_or_number
 	return "PR #" .. tostring(number)
-end
-
-local function gh_async(args, callback)
-	local cmd = { "gh" }
-	vim.list_extend(cmd, args)
-
-	vim.system(cmd, { text = true }, function(result)
-		vim.schedule(function()
-			local stdout = vim.trim(result.stdout or "")
-			local stderr = vim.trim(result.stderr or "")
-			if result.code ~= 0 then
-				callback(nil, stderr ~= "" and stderr or stdout)
-				return
-			end
-
-			callback(stdout, nil)
-		end)
-	end)
 end
 
 local function current_pr_async(callback)
@@ -1028,8 +946,7 @@ local function open_review_float(config)
 end
 
 function M.setup(opts)
-	opts = opts or {}
-	config = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts)
+	config = config_module.setup(opts)
 	setup_highlights()
 
 	if config.comment_style ~= "minimal" and config.comment_style ~= "expanded" then
@@ -1377,23 +1294,7 @@ function M.previous_review_window()
 	focus_review_window(-1)
 end
 
-vim.api.nvim_create_user_command("DiffviewPRComment", function(opts)
-	M.open(opts.line1, opts.line2)
-end, { range = true, force = true })
-vim.api.nvim_create_user_command("DiffviewPRShowComments", M.show_comments_at_cursor, { force = true })
-vim.api.nvim_create_user_command("DiffviewPROpenCommentsOrEnter", M.open_comments_at_cursor_or_enter, { force = true })
-vim.api.nvim_create_user_command("DiffviewPRReply", M.reply_to_comment_at_cursor, { force = true })
-vim.api.nvim_create_user_command("DiffviewPRRefresh", M.refresh, { force = true })
-vim.api.nvim_create_user_command("DiffviewPRNextComment", M.next_comment, { force = true })
-vim.api.nvim_create_user_command("DiffviewPRPreviousComment", M.previous_comment, { force = true })
-vim.api.nvim_create_user_command("DiffviewPRDebugState", M.debug_state, { force = true })
-vim.api.nvim_create_user_command("DiffviewPRReviewApprove", M.approve, { force = true })
-vim.api.nvim_create_user_command("DiffviewPRReviewRequestChanges", M.request_changes, { force = true })
-vim.api.nvim_create_user_command("DiffviewPRReviewClose", M.close_pr, { force = true })
-vim.api.nvim_create_user_command("DiffviewPRCloseReviewWindows", M.close_review_windows, { force = true })
-vim.api.nvim_create_user_command("DiffviewPRNextReviewWindow", M.next_review_window, { force = true })
-vim.api.nvim_create_user_command("DiffviewPRPreviousReviewWindow", M.previous_review_window, { force = true })
-
+commands.register(M)
 setup_highlights()
 vim.api.nvim_create_autocmd("ColorScheme", {
 	group = augroup,

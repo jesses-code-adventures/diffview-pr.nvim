@@ -1,12 +1,12 @@
 # diffview-pr.nvim
 
-Browse, create, and reply to GitHub PR comments inline from [diffview.nvim](https://github.com/sindrets/diffview.nvim).
+Browse, create, and reply to GitHub PR comments inline from [diffview.nvim](https://github.com/dlyongemallo/diffview.nvim).
 
-![demo](https://github.com/user-attachments/assets/71a18cc1-2f79-4ca1-9ac8-2c0aa5e8a9b5)
+> Note: The original [sindrets diffview.nvim](https://github.com/sindrets/diffview.nvim) is unmaintained, so we point to the [dyongemallo fork](https://github.com/dlyongemallo/diffview.nvim) above instead.
 
 ## Requirements
 
-- [diffview.nvim](https://github.com/sindrets/diffview.nvim)
+- [diffview.nvim](https://github.com/dlyongemallo/diffview.nvim)
 - [gh](https://cli.github.com/) – GitHub CLI (authenticated)
 - Neovim >= 0.10 (uses `vim.system`)
 

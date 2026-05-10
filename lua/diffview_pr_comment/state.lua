@@ -1,0 +1,15 @@
+return {
+	pr = nil,
+	comments = nil,
+	comments_by_buf = {},
+	pr_fetching = false,
+	pr_callbacks = {},
+	fetching = false,
+	fetch_callbacks = {},
+	notified_pr = false,
+	review_windows = {},
+	render_context_by_buf = {},
+	tracked_buffers = {},
+	keymaps_by_buf = {},
+	registered_diffview_help = false,
+}
