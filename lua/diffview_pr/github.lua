@@ -1,5 +1,9 @@
 local M = {}
 
+---@param args string[]
+---@param opts? { cwd?: string }
+---@return string? out
+---@return string? err
 local function system(args, opts)
 	opts = opts or {}
 	local result = vim.system(args, { text = true, cwd = opts.cwd }):wait()
@@ -13,18 +17,26 @@ local function system(args, opts)
 	return stdout, nil
 end
 
+---@param args string[]
+---@return string? out
+---@return string? err
 function M.git(args)
 	local cmd = { "git" }
 	vim.list_extend(cmd, args)
 	return system(cmd)
 end
 
+---@param args string[]
+---@return string? out
+---@return string? err
 function M.gh(args)
 	local cmd = { "gh" }
 	vim.list_extend(cmd, args)
 	return system(cmd)
 end
 
+---@param args string[]
+---@param callback DiffviewPRAsyncCallback
 function M.gh_async(args, callback)
 	local cmd = { "gh" }
 	vim.list_extend(cmd, args)
@@ -43,6 +55,8 @@ function M.gh_async(args, callback)
 	end)
 end
 
+---@param err any
+---@return boolean
 function M.is_no_pr_error(err)
 	return type(err) == "string" and err:lower():find("no pull requests", 1, true) ~= nil
 end

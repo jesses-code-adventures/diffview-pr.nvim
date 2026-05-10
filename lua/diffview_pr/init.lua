@@ -18,6 +18,7 @@ local defaults = config_module.defaults
 local gh_async = github.gh_async
 local is_no_pr_error = github.is_no_pr_error
 
+---@param callback DiffviewPRCurrentPRCallback
 local function current_pr_async(callback)
 	if state.pr then
 		callback(state.pr, nil)
@@ -57,6 +58,7 @@ local function current_pr_async(callback)
 	end)
 end
 
+---@param callback DiffviewPRDoneCallback
 local function fetch_comments(callback)
 	if state.comments then
 		callback()
@@ -101,6 +103,7 @@ local function fetch_comments(callback)
 	end)
 end
 
+---@param callback? DiffviewPRDoneCallback
 local function refresh_comments_async(callback)
 	state.comments = nil
 	state.comments_by_buf = {}
@@ -125,6 +128,7 @@ local function refresh_comments_async(callback)
 	end)
 end
 
+---@param direction integer
 local function navigate_comment(direction)
 	fetch_comments(function()
 		local view = diffview.current_view()
@@ -143,6 +147,7 @@ local function navigate_comment(direction)
 	end)
 end
 
+---@param opts? table
 function M.setup(opts)
 	config = config_module.setup(opts)
 	highlights.setup()
@@ -153,6 +158,8 @@ function M.setup(opts)
 	end
 end
 
+---@param line1 integer
+---@param line2 integer
 function M.open(line1, line2)
 	local head, head_err = diffview.ensure_remote_contains_head()
 	if not head then
@@ -181,12 +188,16 @@ function M.open(line1, line2)
 	end)
 end
 
+---@param comment DiffviewPRSubmitComment
+---@param callback? DiffviewPRSubmitCallback
 function M.submit(comment, callback)
 	callback = callback or function() end
+	---@param success boolean
 	local function finish(success)
 		callback(success)
 	end
 
+	---@param message string
 	local function on_created(message)
 		notify(message)
 		refresh_comments_async(function()
@@ -245,10 +256,13 @@ function M.submit(comment, callback)
 	end)
 end
 
+---@param pr_or_number DiffviewPRPullRequest|integer|string
+---@return string
 function M.pr_display_name(pr_or_number)
 	return comments.pr_display_name(pr_or_number)
 end
 
+---@return nil
 function M.approve()
 	local head, head_err = diffview.ensure_remote_contains_head()
 	if not head then
@@ -283,6 +297,7 @@ function M.approve()
 	end)
 end
 
+---@return nil
 function M.request_changes()
 	local head, head_err = diffview.ensure_remote_contains_head()
 	if not head then
@@ -313,6 +328,7 @@ function M.request_changes()
 	end)
 end
 
+---@return nil
 function M.close_pr()
 	current_pr_async(function(pr, pr_err)
 		if not pr then
@@ -343,6 +359,8 @@ function M.close_pr()
 	end)
 end
 
+---@param bufnr integer
+---@param ctx? DiffviewPRAttachContext
 function M.attach_diffview_buffer(bufnr, ctx)
 	diffview.attach_context(bufnr, ctx)
 
@@ -365,6 +383,9 @@ function M.attach_diffview_buffer(bufnr, ctx)
 	end, 100)
 end
 
+---@param bufnr integer
+---@param _ integer
+---@param ctx? DiffviewPRAttachContext
 function M.diff_buf_win_enter(bufnr, _, ctx)
 	keymaps.register_diffview_help()
 	keymaps.setup_buffer(bufnr)
@@ -372,6 +393,7 @@ function M.diff_buf_win_enter(bufnr, _, ctx)
 	M.attach_diffview_buffer(bufnr, ctx)
 end
 
+---@param bufnr integer
 function M.clear_buffer(bufnr)
 	if vim.api.nvim_buf_is_valid(bufnr) then
 		vim.api.nvim_buf_clear_namespace(bufnr, renderer.ns, 0, -1)
@@ -381,6 +403,7 @@ function M.clear_buffer(bufnr)
 	end
 end
 
+---@return nil
 function M.debug_state()
 	local ok, lib = pcall(require, "diffview.lib")
 	local view = ok and lib.get_current_view() or nil
@@ -413,6 +436,7 @@ function M.debug_state()
 	}))
 end
 
+---@return nil
 function M.refresh()
 	local ok, lib = pcall(require, "diffview.lib")
 	if not ok or not lib.get_current_view() then
@@ -422,6 +446,7 @@ function M.refresh()
 	refresh_comments_async()
 end
 
+---@return nil
 function M.show_comments_at_cursor()
 	local bufnr = vim.api.nvim_get_current_buf()
 	local line = vim.api.nvim_win_get_cursor(0)[1]
@@ -434,6 +459,7 @@ function M.show_comments_at_cursor()
 	windows.open_thread(cursor_comments)
 end
 
+---@return nil
 function M.open_comments_at_cursor_or_enter()
 	local bufnr = vim.api.nvim_get_current_buf()
 	local line = vim.api.nvim_win_get_cursor(0)[1]
@@ -447,14 +473,17 @@ function M.open_comments_at_cursor_or_enter()
 	vim.api.nvim_feedkeys(keys, "n", false)
 end
 
+---@return nil
 function M.next_comment()
 	navigate_comment(1)
 end
 
+---@return nil
 function M.previous_comment()
 	navigate_comment(-1)
 end
 
+---@return nil
 function M.reply_to_comment_at_cursor()
 	local bufnr = vim.api.nvim_get_current_buf()
 	local line = vim.api.nvim_win_get_cursor(0)[1]
@@ -467,14 +496,17 @@ function M.reply_to_comment_at_cursor()
 	windows.open_reply(cursor_comments[1])
 end
 
+---@return nil
 function M.close_review_windows()
 	windows.close_review()
 end
 
+---@return nil
 function M.next_review_window()
 	windows.focus_review(1)
 end
 
+---@return nil
 function M.previous_review_window()
 	windows.focus_review(-1)
 end

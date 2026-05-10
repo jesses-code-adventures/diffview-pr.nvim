@@ -1,5 +1,6 @@
 local M = {}
 
+---@type DiffviewPRConfig
 M.defaults = {
 	comment_style = "minimal",
 	keymaps = {
@@ -20,8 +21,11 @@ M.defaults = {
 	},
 }
 
+---@type DiffviewPRConfig
 M.values = vim.deepcopy(M.defaults)
 
+---@param opts? table
+---@return DiffviewPRConfig
 function M.setup(opts)
 	local values = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts or {})
 	for key in pairs(M.values) do

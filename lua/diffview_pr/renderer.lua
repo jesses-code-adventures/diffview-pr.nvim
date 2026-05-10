@@ -9,6 +9,12 @@ local ns = M.ns
 local panel_ns = M.panel_ns
 local augroup = vim.api.nvim_create_augroup("diffview_pr", { clear = false })
 
+---@alias DiffviewPRVirtTextChunk [string, string]
+---@alias DiffviewPRVirtLine DiffviewPRVirtTextChunk[]
+
+---@param comment_list DiffviewPRComment[]
+---@param active boolean
+---@return DiffviewPRVirtLine[]
 local function inline_comment_lines(comment_list, active)
 	local lines = {}
 	local header_hl = active and "DiffviewPRCommentActive" or "DiffviewFilePanelTitle"
@@ -34,6 +40,9 @@ local function inline_comment_lines(comment_list, active)
 	return lines
 end
 
+---@param comment_list DiffviewPRComment[]
+---@param active boolean
+---@return DiffviewPRVirtLine[]
 local function minimal_comment_lines(comment_list, active)
 	local first = comment_list[1]
 	local username = first and comments.author(first) or "someone"
@@ -52,6 +61,9 @@ local function minimal_comment_lines(comment_list, active)
 	return { { { "  " .. username .. " commented" .. suffix .. "...", hl } } }
 end
 
+---@param comment_list DiffviewPRComment[]
+---@param active boolean
+---@return DiffviewPRVirtLine[]
 local function comment_virt_lines(comment_list, active)
 	if config.comment_style == "minimal" then
 		return minimal_comment_lines(comment_list, active)
@@ -60,6 +72,8 @@ local function comment_virt_lines(comment_list, active)
 	return inline_comment_lines(comment_list, active)
 end
 
+---@param bufnr integer
+---@param ctx DiffviewPRContext
 function M.render_comments(bufnr, ctx)
 	if not vim.api.nvim_buf_is_valid(bufnr) then
 		return
@@ -90,6 +104,8 @@ function M.render_comments(bufnr, ctx)
 	end
 end
 
+---@param bufnr integer
+---@param ctx DiffviewPRContext
 function M.track_buffer(bufnr, ctx)
 	state.render_context_by_buf[bufnr] = ctx
 	if state.tracked_buffers[bufnr] then
@@ -109,6 +125,7 @@ function M.track_buffer(bufnr, ctx)
 	})
 end
 
+---@return table<string, integer>
 local function file_comment_counts()
 	local counts = {}
 	for _, comment in ipairs(state.comments or {}) do
@@ -120,6 +137,7 @@ local function file_comment_counts()
 	return counts
 end
 
+---@return nil
 function M.render_panel_comments()
 	local ok, lib = pcall(require, "diffview.lib")
 	if not ok then

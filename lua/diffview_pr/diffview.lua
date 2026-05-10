@@ -3,6 +3,8 @@ local github = require("diffview_pr.github")
 local notify = require("diffview_pr.notify")
 local git = github.git
 
+---@return string? head
+---@return string? err
 function M.ensure_remote_contains_head()
 	local head, head_err = git({ "rev-parse", "HEAD" })
 	if not head then
@@ -21,6 +23,9 @@ function M.ensure_remote_contains_head()
 	return head
 end
 
+---@param bufnr? integer
+---@return DiffviewPRContext? ctx
+---@return string? err
 function M.current_context(bufnr)
 	local ok, lib = pcall(require, "diffview.lib")
 	if not ok then
@@ -50,6 +55,8 @@ function M.current_context(bufnr)
 	return { side = side, path = path }
 end
 
+---@param bufnr integer
+---@param ctx? DiffviewPRAttachContext
 function M.attach_context(bufnr, ctx)
 	if not ctx then
 		return
@@ -62,6 +69,7 @@ function M.attach_context(bufnr, ctx)
 	end
 end
 
+---@return any view
 function M.current_view()
 	local ok, lib = pcall(require, "diffview.lib")
 	if not ok then
@@ -71,6 +79,7 @@ function M.current_view()
 	return lib.get_current_view()
 end
 
+---@param target DiffviewPRTarget
 function M.focus_target(target)
 	local view = M.current_view()
 	if not view then

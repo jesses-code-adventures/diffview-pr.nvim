@@ -2,23 +2,33 @@ local M = {}
 local state = require("diffview_pr.state")
 local diffview = require("diffview_pr.diffview")
 
+---@param pr_or_number DiffviewPRPullRequest|integer|string
+---@return string
 function M.pr_display_name(pr_or_number)
 	local number = type(pr_or_number) == "table" and pr_or_number.number or pr_or_number
 	return "PR #" .. tostring(number)
 end
 
+---@param comment DiffviewPRComment
+---@return integer?
 function M.line(comment)
 	return comment.line or comment.original_line
 end
 
+---@param comment DiffviewPRComment
+---@return string
 function M.side(comment)
 	return comment.side or comment.original_side or "RIGHT"
 end
 
+---@param comment DiffviewPRComment
+---@return string
 function M.author(comment)
 	return comment.user and comment.user.login or "unknown"
 end
 
+---@param comments DiffviewPRComment[]
+---@return DiffviewPRComment[]
 function M.hydrate_threads(comments)
 	local by_id = {}
 	for _, comment in ipairs(comments) do
@@ -52,6 +62,8 @@ function M.hydrate_threads(comments)
 	return comments
 end
 
+---@param ctx DiffviewPRContext
+---@return DiffviewPRComment[]
 function M.for_context(ctx)
 	if not state.comments then
 		return {}
@@ -67,6 +79,8 @@ function M.for_context(ctx)
 	return comments
 end
 
+---@param view any
+---@return table<string, { index: integer, file: any }>
 function M.file_order(view)
 	local files = view and view.panel and view.panel.ordered_file_list and view.panel:ordered_file_list() or {}
 	local order = {}
@@ -83,6 +97,8 @@ function M.file_order(view)
 	return order
 end
 
+---@param view any
+---@return DiffviewPRTarget[]
 function M.targets_for_view(view)
 	local order = M.file_order(view)
 	local seen = {}
@@ -122,6 +138,8 @@ function M.targets_for_view(view)
 	return targets
 end
 
+---@param view any
+---@return DiffviewPRTarget?
 function M.current_position(view)
 	local ctx = diffview.current_context(vim.api.nvim_get_current_buf())
 	if ctx then
@@ -138,6 +156,9 @@ function M.current_position(view)
 	end
 end
 
+---@param targets DiffviewPRTarget[]
+---@param pos DiffviewPRTarget?
+---@return DiffviewPRTarget
 function M.target_after(targets, pos)
 	if not pos then
 		return targets[1]
@@ -155,6 +176,9 @@ function M.target_after(targets, pos)
 	return targets[1]
 end
 
+---@param targets DiffviewPRTarget[]
+---@param pos DiffviewPRTarget?
+---@return DiffviewPRTarget
 function M.target_before(targets, pos)
 	if not pos then
 		return targets[1]

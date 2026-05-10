@@ -1,5 +1,6 @@
 local M = {}
 
+---@param plugin table<string, function>
 function M.register(plugin)
 	vim.api.nvim_create_user_command("DiffviewPRComment", function(opts)
 		plugin.open(opts.line1, opts.line2)

@@ -3,6 +3,11 @@ local config = require("diffview_pr.config").values
 local state = require("diffview_pr.state")
 local diffview = require("diffview_pr.diffview")
 
+---@param mode string|string[]
+---@param lhs string|false|nil
+---@param rhs string|function
+---@param bufnr integer
+---@param desc string
 local function set_keymap(mode, lhs, rhs, bufnr, desc)
 	if not lhs or lhs == false then
 		return
@@ -11,6 +16,7 @@ local function set_keymap(mode, lhs, rhs, bufnr, desc)
 	vim.keymap.set(mode, lhs, rhs, { buffer = bufnr, desc = desc })
 end
 
+---@param bufnr integer
 function M.setup_buffer(bufnr)
 	local keymaps = config.keymaps
 	if not keymaps or keymaps.enabled == false then
@@ -46,6 +52,7 @@ function M.setup_buffer(bufnr)
 	end, bufnr, "Open the help panel")
 end
 
+---@return nil
 function M.setup_panel()
 	local keymaps = config.keymaps
 	if not keymaps or keymaps.enabled == false then
@@ -71,6 +78,11 @@ function M.setup_panel()
 	end, bufnr, "Open the help panel")
 end
 
+---@param diffview_keymaps table<string, table[]>
+---@param group string
+---@param lhs string|false|nil
+---@param rhs string|function
+---@param desc string
 local function add_diffview_help_keymap(diffview_keymaps, group, lhs, rhs, desc)
 	if not lhs or lhs == false then
 		return
@@ -86,6 +98,9 @@ local function add_diffview_help_keymap(diffview_keymaps, group, lhs, rhs, desc)
 	table.insert(diffview_keymaps[group], { "n", lhs, rhs, { desc = desc } })
 end
 
+---@param diffview_keymaps table<string, table[]>
+---@param group string
+---@param help_groups string[]
 local function replace_diffview_help_mapping(diffview_keymaps, group, help_groups)
 	local ok, actions = pcall(require, "diffview.actions")
 	if not ok or not diffview_keymaps[group] then
@@ -100,6 +115,7 @@ local function replace_diffview_help_mapping(diffview_keymaps, group, help_group
 	end
 end
 
+---@return nil
 function M.register_diffview_help()
 	local keymaps = config.keymaps
 	if state.registered_diffview_help or not keymaps or keymaps.enabled == false then

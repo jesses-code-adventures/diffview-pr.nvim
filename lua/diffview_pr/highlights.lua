@@ -1,5 +1,6 @@
 local M = {}
 
+---@return nil
 function M.setup()
 	local normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
 	local comment = vim.api.nvim_get_hl(0, { name = "Comment", link = false })

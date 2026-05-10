@@ -2,12 +2,26 @@ local M = {}
 local state = require("diffview_pr.state")
 local notify = require("diffview_pr.notify")
 local ns = require("diffview_pr.renderer").ns
+
+---@class DiffviewPRWindowDeps
+---@field current_pr fun(callback: DiffviewPRCurrentPRCallback)
+---@field submit fun(comment: DiffviewPRSubmitComment, callback?: DiffviewPRSubmitCallback)
+
+---@class DiffviewPRReviewConfig
+---@field title string
+---@field placeholder? string
+---@field require_body boolean
+---@field submit_fn fun(body: string, callback: DiffviewPRSubmitCallback)
+
+---@type DiffviewPRWindowDeps|table
 local deps = {}
 
+---@param opts DiffviewPRWindowDeps
 function M.setup(opts)
 	deps = opts or {}
 end
 
+---@return nil
 function M.close_review()
 	for _, win in ipairs(state.review_windows) do
 		if vim.api.nvim_win_is_valid(win) then
@@ -17,6 +31,7 @@ function M.close_review()
 	state.review_windows = {}
 end
 
+---@param direction integer
 function M.focus_review(direction)
 	local wins = vim.tbl_filter(function(win)
 		return vim.api.nvim_win_is_valid(win)
@@ -41,6 +56,7 @@ function M.focus_review(direction)
 	vim.api.nvim_set_current_win(wins[next_index])
 end
 
+---@param comments DiffviewPRComment[]
 function M.open_thread(comments)
 	deps.current_pr(function(pr, pr_err)
 		if not pr then
@@ -58,6 +74,12 @@ function M.open_thread(comments)
 		local temp_path = vim.fn.tempname() .. ".md"
 		local root_id = comments[1] and (comments[1]._thread_root_id or comments[1].in_reply_to_id or comments[1].id)
 
+		---@param buf integer
+		---@param panel_row integer
+		---@param panel_height integer
+		---@param title string
+		---@param enter boolean
+		---@return integer
 		local function open_panel(buf, panel_row, panel_height, title, enter)
 			local win = vim.api.nvim_open_win(buf, enter, {
 			relative = "editor",
@@ -77,6 +99,7 @@ function M.open_thread(comments)
 		end
 
 		local diff_buf = vim.api.nvim_create_buf(false, true)
+	---@type string[]
 	local diff_lines = comments[1] and vim.split(comments[1].diff_hunk or "", "\n", { plain = true }) or {}
 	if #diff_lines == 0 then
 		diff_lines = { "No diff preview available" }
@@ -88,6 +111,7 @@ function M.open_thread(comments)
 	open_panel(diff_buf, row, diff_height, "Diff", false)
 
 	local thread_buf = vim.api.nvim_create_buf(false, true)
+	---@type string[]
 	local thread_lines = {}
 
 	for i, comment in ipairs(comments) do
@@ -152,6 +176,8 @@ function M.open_thread(comments)
 	end)
 end
 
+---@param comment DiffviewPRSubmitComment
+---@param title? string
 function M.open_comment(comment, title)
 	local temp_path = vim.fn.tempname() .. ".md"
 	local width = math.min(88, math.floor(vim.o.columns * 0.75))
@@ -213,10 +239,12 @@ function M.open_comment(comment, title)
 
 end
 
+---@param parent_comment DiffviewPRComment
 function M.open_reply(parent_comment)
 	M.open_thread({ parent_comment })
 end
 
+---@param config DiffviewPRReviewConfig
 function M.open_review(config)
 	local temp_path = vim.fn.tempname() .. ".md"
 	local width = math.min(88, math.floor(vim.o.columns * 0.75))
