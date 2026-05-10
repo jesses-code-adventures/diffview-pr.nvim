@@ -23,7 +23,13 @@ M.defaults = {
 M.values = vim.deepcopy(M.defaults)
 
 function M.setup(opts)
-	M.values = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts or {})
+	local values = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts or {})
+	for key in pairs(M.values) do
+		M.values[key] = nil
+	end
+	for key, value in pairs(values) do
+		M.values[key] = value
+	end
 	return M.values
 end
 

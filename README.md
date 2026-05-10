@@ -1,8 +1,15 @@
 # diffview-pr.nvim
 
-Browse, create, and reply to GitHub PR comments inline from [diffview.nvim](https://github.com/dlyongemallo/diffview.nvim).
+Review, comment on, and reply to threads in PRs inline in [diffview.nvim](https://github.com/dlyongemallo/diffview.nvim).
 
 > Note: The original [sindrets diffview.nvim](https://github.com/sindrets/diffview.nvim) is unmaintained, so we point to the [dyongemallo fork](https://github.com/dlyongemallo/diffview.nvim) above instead.
+
+## How it works
+
+1. When you open a diffview with an associated PR branch, the plugin detects the PR via `gh pr view`.
+2. Review comments are fetched via the GitHub API (`gh api repos/{owner}/{repo}/pulls/{number}/comments`).
+3. Comments are rendered above the corresponding lines in the diff buffers.
+4. Comments & replies are sent using `gh api`.
 
 ## Requirements
 
@@ -13,7 +20,7 @@ Browse, create, and reply to GitHub PR comments inline from [diffview.nvim](http
 ## Installation
 
 ```lua
--- vim.pack
+-- vim.pack (nvim 0.12+)
 vim.pack.add {
 	{ src = "https://github.com/jesses-code-adventures/diffview-pr.nvim" },
 }
@@ -21,7 +28,6 @@ vim.pack.add {
 -- lazy.nvim
 {
   "jesses-code-adventures/diffview-pr.nvim",
-  lazy = true,
 }
 
 -- packer.nvim
@@ -115,13 +121,6 @@ pr.open_comments_at_cursor_or_enter() -- Show comments or pass through <CR>
 pr.reply_to_comment_at_cursor()  -- Open reply float for thread at cursor
 pr.debug_state()                 -- Print internal state for debugging
 ```
-
-## How it works
-
-1. When you open a diffview with an associated PR branch, the plugin detects the PR via `gh pr view`.
-2. It fetches review comments via the GitHub API (`gh api repos/{owner}/{repo}/pulls/{number}/comments`).
-3. Comments are rendered as virtual text above the corresponding lines in the diff buffers.
-4. Creating/reply to comments uses `gh api` to POST to the GitHub API.
 
 ## License
 
