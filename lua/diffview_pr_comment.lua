@@ -23,6 +23,7 @@ local defaults = {
 	},
 }
 local config = vim.deepcopy(defaults)
+local current_diffview_view
 local state = {
 	pr = nil,
 	comments = nil,
@@ -36,6 +37,7 @@ local state = {
 	render_context_by_buf = {},
 	tracked_buffers = {},
 	keymaps_by_buf = {},
+	registered_diffview_help = false,
 }
 
 local function notify(msg, level)
@@ -76,6 +78,10 @@ local function gh(args)
 	local cmd = { "gh" }
 	vim.list_extend(cmd, args)
 	return system(cmd)
+end
+
+local function is_no_pr_error(err)
+	return type(err) == "string" and err:lower():find("no pull requests", 1, true) ~= nil
 end
 
 local function ensure_remote_contains_head()
@@ -169,6 +175,15 @@ local function setup_buffer_keymaps(bufnr)
 	set_keymap("n", keymaps.close_review_windows, ":DiffviewPRCloseReviewWindows<CR>", bufnr, "Close PR review windows")
 	set_keymap("n", keymaps.next_review_window, ":DiffviewPRNextReviewWindow<CR>", bufnr, "Next PR review window")
 	set_keymap("n", keymaps.previous_review_window, ":DiffviewPRPreviousReviewWindow<CR>", bufnr, "Previous PR review window")
+	set_keymap("n", "g?", function()
+		local ok, actions = pcall(require, "diffview.actions")
+		local view = current_diffview_view()
+		local layout = view and view.cur_layout and view.cur_layout.name or "diff2"
+		local layout_group = layout:match("^(diff%d)") or "diff2"
+		if ok then
+			actions.help({ "view", layout_group, "diffview_pr" })()
+		end
+	end, bufnr, "Open the help panel")
 end
 
 local function setup_panel_keymaps()
@@ -188,6 +203,80 @@ local function setup_panel_keymaps()
 	state.keymaps_by_buf[bufnr] = true
 	set_keymap("n", keymaps.next_comment, ":DiffviewPRNextComment<CR>", bufnr, "Next PR comment")
 	set_keymap("n", keymaps.previous_comment, ":DiffviewPRPreviousComment<CR>", bufnr, "Previous PR comment")
+	set_keymap("n", "g?", function()
+		local ok, actions = pcall(require, "diffview.actions")
+		if ok then
+			actions.help({ "file_panel", "diffview_pr" })()
+		end
+	end, bufnr, "Open the help panel")
+end
+
+local function add_diffview_help_keymap(diffview_keymaps, group, lhs, rhs, desc)
+	if not lhs or lhs == false then
+		return
+	end
+	diffview_keymaps[group] = diffview_keymaps[group] or {}
+
+	for _, mapping in ipairs(diffview_keymaps[group]) do
+		if mapping[1] == "n" and mapping[2] == lhs then
+			return
+		end
+	end
+
+	table.insert(diffview_keymaps[group], { "n", lhs, rhs, { desc = desc } })
+end
+
+local function replace_diffview_help_mapping(diffview_keymaps, group, help_groups)
+	local ok, actions = pcall(require, "diffview.actions")
+	if not ok or not diffview_keymaps[group] then
+		return
+	end
+
+	for _, mapping in ipairs(diffview_keymaps[group]) do
+		if mapping[1] == "n" and mapping[2] == "g?" then
+			mapping[3] = actions.help(help_groups)
+			return
+		end
+	end
+end
+
+local function register_diffview_help_keymaps()
+	local keymaps = config.keymaps
+	if state.registered_diffview_help or not keymaps or keymaps.enabled == false then
+		return
+	end
+
+	local ok, diffview_config = pcall(require, "diffview.config")
+	if not ok then
+		return
+	end
+
+	state.registered_diffview_help = true
+	local diffview_keymaps = diffview_config.get_config().keymaps
+	local mappings = {
+		{ keymaps.show_comments, ":DiffviewPRShowComments<CR>", "Open PR comments at cursor" },
+		{ keymaps.open_comments_or_enter, ":DiffviewPROpenCommentsOrEnter<CR>", "Open PR comments at cursor" },
+		{ keymaps.reply, ":DiffviewPRReply<CR>", "Reply to PR comment at cursor" },
+		{ keymaps.refresh, ":DiffviewPRRefresh<CR>", "Refresh PR comments" },
+		{ keymaps.next_comment, ":DiffviewPRNextComment<CR>", "Next PR comment" },
+		{ keymaps.previous_comment, ":DiffviewPRPreviousComment<CR>", "Previous PR comment" },
+		{ keymaps.approve, ":DiffviewPRReviewApprove<CR>", "Approve PR" },
+		{ keymaps.request_changes, ":DiffviewPRReviewRequestChanges<CR>", "Request PR changes" },
+		{ keymaps.close_pr, ":DiffviewPRReviewClose<CR>", "Close PR" },
+		{ keymaps.close_review_windows, ":DiffviewPRCloseReviewWindows<CR>", "Close PR review windows" },
+		{ keymaps.next_review_window, ":DiffviewPRNextReviewWindow<CR>", "Next PR review window" },
+		{ keymaps.previous_review_window, ":DiffviewPRPreviousReviewWindow<CR>", "Previous PR review window" },
+	}
+
+	for _, mapping in ipairs(mappings) do
+		add_diffview_help_keymap(diffview_keymaps, "diffview_pr", mapping[1], mapping[2], mapping[3])
+	end
+
+	replace_diffview_help_mapping(diffview_keymaps, "diff1", { "view", "diff1", "diffview_pr" })
+	replace_diffview_help_mapping(diffview_keymaps, "diff2", { "view", "diff2", "diffview_pr" })
+	replace_diffview_help_mapping(diffview_keymaps, "diff3", { "view", "diff3", "diffview_pr" })
+	replace_diffview_help_mapping(diffview_keymaps, "diff4", { "view", "diff4", "diffview_pr" })
+	replace_diffview_help_mapping(diffview_keymaps, "file_panel", { "file_panel", "diffview_pr" })
 end
 
 local function current_pr()
@@ -197,7 +286,7 @@ local function current_pr()
 
 	local out, err = gh({ "pr", "view", "--json", "number,url" })
 	if not out then
-		return nil, err
+		return nil, err, is_no_pr_error(err)
 	end
 
 	local ok, pr = pcall(vim.json.decode, out)
@@ -251,7 +340,7 @@ local function current_pr_async(callback)
 
 		if not out then
 			for _, cb in ipairs(callbacks) do
-				cb(nil, err)
+				cb(nil, err, is_no_pr_error(err))
 			end
 			return
 		end
@@ -480,7 +569,7 @@ local function render_panel_comments()
 	end
 end
 
-local function current_diffview_view()
+current_diffview_view = function()
 	local ok, lib = pcall(require, "diffview.lib")
 	if not ok then
 		return nil
@@ -639,10 +728,12 @@ local function fetch_comments(callback)
 	end
 
 	state.fetching = true
-	current_pr_async(function(pr, pr_err)
+	current_pr_async(function(pr, pr_err, no_pr)
 		if not pr then
 			state.fetching = false
-			notify(pr_err, vim.log.levels.WARN)
+			if not no_pr then
+				notify(pr_err, vim.log.levels.WARN)
+			end
 			return
 		end
 
@@ -1142,6 +1233,7 @@ function M.attach_diffview_buffer(bufnr, ctx)
 end
 
 function M.diff_buf_win_enter(bufnr, _, ctx)
+	register_diffview_help_keymaps()
 	setup_buffer_keymaps(bufnr)
 	setup_panel_keymaps()
 	M.attach_diffview_buffer(bufnr, ctx)
