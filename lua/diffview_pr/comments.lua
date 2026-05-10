@@ -27,6 +27,36 @@ function M.author(comment)
 	return comment.user and comment.user.login or "unknown"
 end
 
+---@param comment DiffviewPRComment
+---@return string?
+function M.timestamp(comment)
+	if not comment.created_at then
+		return nil
+	end
+
+	local timestamp = vim.fn.strptime("%Y-%m-%dT%H:%M:%SZ", comment.created_at)
+	if timestamp == 0 then
+		return nil
+	end
+
+	local offset = os.difftime(os.time(os.date("*t", timestamp)), os.time(os.date("!*t", timestamp)))
+	timestamp = timestamp + offset
+
+	local format = os.date("%Y%m%d", timestamp) == os.date("%Y%m%d") and "%H:%M" or "%d/%m %H:%M"
+	return os.date(format, timestamp)
+end
+
+---@param comment DiffviewPRComment
+---@return string
+function M.author_with_timestamp(comment)
+	local timestamp = M.timestamp(comment)
+	if timestamp then
+		return timestamp .. " " .. M.author(comment)
+	end
+
+	return M.author(comment)
+end
+
 ---@param comments DiffviewPRComment[]
 ---@return DiffviewPRComment[]
 function M.hydrate_threads(comments)

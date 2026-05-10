@@ -22,7 +22,7 @@ local function inline_comment_lines(comment_list, active)
 	local body_hl = active and "DiffviewPRCommentActive" or "Comment"
 
 	for index, comment in ipairs(comment_list) do
-		table.insert(lines, { { "  " .. comments.author(comment) .. " commented:", header_hl } })
+		table.insert(lines, { { "  " .. comments.author_with_timestamp(comment) .. " commented:", header_hl } })
 
 		local body_lines = vim.split(comment.body or "", "\n", { plain = true })
 		if #body_lines == 0 then
@@ -47,6 +47,7 @@ end
 local function minimal_comment_lines(comment_list, active)
 	local first = comment_list[1]
 	local username = first and comments.author(first) or "someone"
+	local display_name = first and comments.author_with_timestamp(first) or "someone"
 	local other_users = {}
 
 	for _, comment in ipairs(comment_list) do
@@ -59,7 +60,7 @@ local function minimal_comment_lines(comment_list, active)
 	local others = vim.tbl_count(other_users)
 	local suffix = others == 0 and "" or " (and " .. others .. " other" .. (others == 1 and "" or "s") .. ")"
 	local hl = active and "DiffviewPRCommentActive" or "DiffviewFilePanelTitle"
-	return { { { "  " .. username .. " commented" .. suffix .. "...", hl } } }
+	return { { { "  " .. display_name .. " commented" .. suffix .. "...", hl } } }
 end
 
 ---@param comment_list DiffviewPRComment[]
@@ -142,6 +143,9 @@ local function close_inline_reply(reply)
 	if vim.api.nvim_buf_is_valid(reply.input_bufnr) then
 		vim.api.nvim_buf_delete(reply.input_bufnr, { force = true })
 	end
+	if vim.uv.fs_stat(reply.temp_path) then
+		vim.fn.delete(reply.temp_path)
+	end
 	rerender_buffer(reply.bufnr)
 end
 
@@ -183,9 +187,9 @@ local function inline_reply_body(reply)
 end
 
 ---@param reply DiffviewPRInlineReply
+---@param body string
 ---@return nil
-local function submit_inline_reply(reply)
-	local body = inline_reply_body(reply)
+local function submit_inline_reply_body(reply, body)
 	close_inline_reply(reply)
 	if body == "" or not deps.submit or not state.pr then
 		return
@@ -199,6 +203,12 @@ local function submit_inline_reply(reply)
 	}, function()
 		rerender_buffer(reply.bufnr)
 	end)
+end
+
+---@param reply DiffviewPRInlineReply
+---@return nil
+local function submit_inline_reply(reply)
+	submit_inline_reply_body(reply, inline_reply_body(reply))
 end
 
 ---@param bufnr integer
@@ -218,7 +228,9 @@ function M.start_inline_reply(bufnr, line, comment_list, title)
 		return
 	end
 
-	local input_bufnr = vim.api.nvim_create_buf(false, true)
+	local temp_path = vim.fn.tempname() .. ".md"
+	local input_bufnr = vim.api.nvim_create_buf(false, false)
+	vim.api.nvim_buf_set_name(input_bufnr, temp_path)
 	vim.bo[input_bufnr].buftype = "acwrite"
 	vim.bo[input_bufnr].bufhidden = "wipe"
 	vim.bo[input_bufnr].filetype = "markdown"
@@ -232,6 +244,7 @@ function M.start_inline_reply(bufnr, line, comment_list, title)
 		input_bufnr = input_bufnr,
 		winid = -1,
 		title = title or "Reply",
+		temp_path = temp_path,
 	}
 
 	local reply = state.inline_reply
@@ -268,8 +281,11 @@ function M.start_inline_reply(bufnr, line, comment_list, title)
 		group = augroup,
 		buffer = input_bufnr,
 		callback = function()
+			local body = inline_reply_body(reply)
 			vim.bo[input_bufnr].modified = false
-			submit_inline_reply(reply)
+			vim.schedule(function()
+				submit_inline_reply_body(reply, body)
+			end)
 		end,
 	})
 
@@ -287,6 +303,9 @@ function M.start_inline_reply(bufnr, line, comment_list, title)
 		callback = function()
 			if state.inline_reply == reply then
 				state.inline_reply = nil
+			end
+			if vim.uv.fs_stat(reply.temp_path) then
+				vim.fn.delete(reply.temp_path)
 			end
 		end,
 	})

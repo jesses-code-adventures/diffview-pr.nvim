@@ -92,6 +92,7 @@
 ---@field input_bufnr integer
 ---@field winid integer
 ---@field title string
+---@field temp_path string
 
 ---@type DiffviewPRState
 return {

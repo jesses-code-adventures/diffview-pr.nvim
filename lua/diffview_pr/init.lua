@@ -363,6 +363,9 @@ end
 ---@param ctx? DiffviewPRAttachContext
 function M.attach_diffview_buffer(bufnr, ctx)
 	diffview.attach_context(bufnr, ctx)
+	if not vim.b[bufnr].diffview_pr_side then
+		return
+	end
 
 	vim.defer_fn(function()
 		local render_ctx, ctx_err = diffview.current_context(bufnr)
