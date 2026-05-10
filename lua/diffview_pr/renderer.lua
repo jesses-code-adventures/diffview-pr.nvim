@@ -8,6 +8,7 @@ M.panel_ns = vim.api.nvim_create_namespace("diffview_pr_comment_panel")
 local ns = M.ns
 local panel_ns = M.panel_ns
 local augroup = vim.api.nvim_create_augroup("diffview_pr", { clear = false })
+local deps = {}
 
 ---@alias DiffviewPRVirtTextChunk [string, string]
 ---@alias DiffviewPRVirtLine DiffviewPRVirtTextChunk[]
@@ -73,6 +74,23 @@ local function comment_virt_lines(comment_list, active)
 end
 
 ---@param bufnr integer
+---@return nil
+local function rerender_buffer(bufnr)
+	local render_ctx = state.render_context_by_buf[bufnr]
+	if render_ctx then
+		M.render_comments(bufnr, render_ctx)
+	end
+end
+
+---@param winid integer
+---@return integer
+local function textoff(winid)
+	return vim.api.nvim_win_call(winid, function()
+		return vim.fn.getwininfo(winid)[1].textoff
+	end)
+end
+
+---@param bufnr integer
 ---@param ctx DiffviewPRContext
 function M.render_comments(bufnr, ctx)
 	if not vim.api.nvim_buf_is_valid(bufnr) then
@@ -102,6 +120,178 @@ function M.render_comments(bufnr, ctx)
 			virt_lines_above = config.comment_style == "minimal",
 		})
 	end
+end
+
+---@param opts table?
+---@return nil
+function M.setup(opts)
+	deps = opts or {}
+end
+
+---@param reply DiffviewPRInlineReply?
+---@return nil
+local function close_inline_reply(reply)
+	reply = reply or state.inline_reply
+	if not reply then
+		return
+	end
+	state.inline_reply = nil
+	if vim.api.nvim_win_is_valid(reply.winid) then
+		vim.api.nvim_win_close(reply.winid, true)
+	end
+	if vim.api.nvim_buf_is_valid(reply.input_bufnr) then
+		vim.api.nvim_buf_delete(reply.input_bufnr, { force = true })
+	end
+	rerender_buffer(reply.bufnr)
+end
+
+---@param reply DiffviewPRInlineReply
+---@return nil
+local function resize_inline_reply(reply)
+	if not vim.api.nvim_win_is_valid(reply.winid) or not vim.api.nvim_buf_is_valid(reply.input_bufnr) then
+		return
+	end
+
+	local source_win = vim.fn.bufwinid(reply.bufnr)
+	if source_win == -1 then
+		return
+	end
+
+	local source_winline = vim.api.nvim_win_call(source_win, function()
+		return vim.fn.winline()
+	end)
+	local col = textoff(source_win)
+	local height = math.max(1, vim.api.nvim_buf_line_count(reply.input_bufnr))
+	local max_height = math.max(1, vim.api.nvim_win_get_height(source_win) - source_winline)
+	vim.api.nvim_win_set_config(reply.winid, {
+		relative = "win",
+		win = source_win,
+		row = source_winline + #inline_comment_lines(reply.comments, true),
+		col = col,
+		width = math.max(1, vim.api.nvim_win_get_width(source_win) - col - 2),
+		height = math.min(height, max_height),
+	})
+end
+
+---@param reply DiffviewPRInlineReply
+---@return string
+local function inline_reply_body(reply)
+	if not vim.api.nvim_buf_is_valid(reply.input_bufnr) then
+		return ""
+	end
+	return vim.trim(table.concat(vim.api.nvim_buf_get_lines(reply.input_bufnr, 0, -1, false), "\n"))
+end
+
+---@param reply DiffviewPRInlineReply
+---@return nil
+local function submit_inline_reply(reply)
+	local body = inline_reply_body(reply)
+	close_inline_reply(reply)
+	if body == "" or not deps.submit or not state.pr then
+		return
+	end
+
+	local parent = reply.comments[1]
+	deps.submit({
+		pr_number = state.pr.number,
+		body = body,
+		reply_to_id = parent._thread_root_id or parent.in_reply_to_id or parent.id,
+	}, function()
+		rerender_buffer(reply.bufnr)
+	end)
+end
+
+---@param bufnr integer
+---@param line integer
+---@param comment_list DiffviewPRComment[]
+---@param title? string
+---@return nil
+function M.start_inline_reply(bufnr, line, comment_list, title)
+	if config.comment_style ~= "expanded" then
+		return
+	end
+	if state.inline_reply then
+		close_inline_reply(state.inline_reply)
+	end
+	local source_win = vim.fn.bufwinid(bufnr)
+	if source_win == -1 then
+		return
+	end
+
+	local input_bufnr = vim.api.nvim_create_buf(false, true)
+	vim.bo[input_bufnr].buftype = "acwrite"
+	vim.bo[input_bufnr].bufhidden = "wipe"
+	vim.bo[input_bufnr].filetype = "markdown"
+	vim.bo[input_bufnr].swapfile = false
+	vim.api.nvim_buf_set_lines(input_bufnr, 0, -1, false, { "" })
+
+	state.inline_reply = {
+		bufnr = bufnr,
+		line = line,
+		comments = comment_list,
+		input_bufnr = input_bufnr,
+		winid = -1,
+		title = title or "Reply",
+	}
+
+	local reply = state.inline_reply
+	local col = textoff(source_win)
+	reply.winid = vim.api.nvim_open_win(input_bufnr, true, {
+		relative = "win",
+		win = source_win,
+		row = vim.fn.winline() + #inline_comment_lines(comment_list, true),
+		col = col,
+		width = math.max(1, vim.api.nvim_win_get_width(source_win) - col - 2),
+		height = 1,
+		style = "minimal",
+		border = "rounded",
+		title = " " .. reply.title .. " ",
+		title_pos = "center",
+		zindex = 60,
+	})
+	vim.wo[reply.winid].wrap = true
+	vim.wo[reply.winid].number = false
+	vim.wo[reply.winid].relativenumber = false
+	vim.wo[reply.winid].signcolumn = "no"
+	vim.wo[reply.winid].winhighlight = "Normal:Normal,EndOfBuffer:Normal"
+
+	vim.keymap.set({ "n", "i" }, "<C-s>", function()
+		submit_inline_reply(reply)
+	end, { buffer = input_bufnr, desc = "Submit PR reply" })
+	vim.keymap.set({ "n", "i" }, "<C-c>", function()
+		close_inline_reply(reply)
+	end, { buffer = input_bufnr, desc = "Cancel PR reply" })
+	vim.keymap.set("n", "q", function()
+		close_inline_reply(reply)
+	end, { buffer = input_bufnr, desc = "Cancel PR reply" })
+	vim.api.nvim_create_autocmd("BufWriteCmd", {
+		group = augroup,
+		buffer = input_bufnr,
+		callback = function()
+			vim.bo[input_bufnr].modified = false
+			submit_inline_reply(reply)
+		end,
+	})
+
+	vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+		group = augroup,
+		buffer = input_bufnr,
+		callback = function()
+			resize_inline_reply(reply)
+		end,
+	})
+	vim.api.nvim_create_autocmd("BufWipeout", {
+		group = augroup,
+		buffer = input_bufnr,
+		once = true,
+		callback = function()
+			if state.inline_reply == reply then
+				state.inline_reply = nil
+			end
+		end,
+	})
+
+	vim.cmd("startinsert")
 end
 
 ---@param bufnr integer

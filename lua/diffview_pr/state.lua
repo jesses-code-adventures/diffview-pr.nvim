@@ -83,6 +83,15 @@
 ---@field tracked_buffers table<integer, boolean>
 ---@field keymaps_by_buf table<integer, boolean>
 ---@field registered_diffview_help boolean
+---@field inline_reply DiffviewPRInlineReply?
+
+---@class DiffviewPRInlineReply
+---@field bufnr integer
+---@field line integer
+---@field comments DiffviewPRComment[]
+---@field input_bufnr integer
+---@field winid integer
+---@field title string
 
 ---@type DiffviewPRState
 return {
@@ -99,4 +108,5 @@ return {
 	tracked_buffers = {},
 	keymaps_by_buf = {},
 	registered_diffview_help = false,
+	inline_reply = nil,
 }

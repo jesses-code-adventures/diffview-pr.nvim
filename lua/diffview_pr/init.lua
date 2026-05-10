@@ -465,6 +465,10 @@ function M.open_comments_at_cursor_or_enter()
 	local line = vim.api.nvim_win_get_cursor(0)[1]
 
 	if state.comments_by_buf[bufnr] and state.comments_by_buf[bufnr][line] then
+		if config.comment_style == "expanded" then
+			renderer.start_inline_reply(bufnr, line, state.comments_by_buf[bufnr][line], "Reply")
+			return
+		end
 		M.show_comments_at_cursor()
 		return
 	end
@@ -512,6 +516,7 @@ function M.previous_review_window()
 end
 
 windows.setup({ current_pr = current_pr_async, submit = M.submit })
+renderer.setup({ submit = M.submit })
 commands.register(M)
 highlights.setup()
 vim.api.nvim_create_autocmd("ColorScheme", {
