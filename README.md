@@ -38,6 +38,9 @@ require("diffview_pr").setup({
   -- "expanded" shows full inline comment threads.
   -- "minimal" shows the previous collapsed one-line summary.
   comment_style = "minimal",
+  -- "inline" shows virtual text on the same line as the code position.
+  -- "overlay" shows virtual text on top of the code.
+  virtual_text_position = "inline",
 
   -- Set to false to skip installing the default buffer-local mappings.
   keymaps = {
