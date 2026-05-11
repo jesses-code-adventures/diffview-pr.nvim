@@ -35,6 +35,22 @@ function M.line(comment)
 end
 
 ---@param comment DiffviewPRComment
+---@return integer?
+function M.start_line(comment)
+	local start_line = json_value(comment.start_line)
+	if type(start_line) == "number" then
+		return start_line
+	end
+
+	local original_start_line = json_value(comment.original_start_line)
+	if type(original_start_line) == "number" then
+		return original_start_line
+	end
+
+	return M.line(comment)
+end
+
+---@param comment DiffviewPRComment
 ---@return string
 function M.side(comment)
 	return json_value(comment.side) or json_value(comment.original_side) or "RIGHT"
@@ -93,7 +109,9 @@ function M.hydrate_threads(comments)
 			comment.side = json_value(comment.side) or json_value(parent.side)
 			comment.original_side = json_value(comment.original_side) or json_value(parent.original_side)
 			comment.line = json_value(comment.line) or json_value(parent.line)
+			comment.start_line = json_value(comment.start_line) or json_value(parent.start_line)
 			comment.original_line = json_value(comment.original_line) or json_value(parent.original_line)
+			comment.original_start_line = json_value(comment.original_start_line) or json_value(parent.original_start_line)
 			comment._thread_root_id = parent._thread_root_id or parent.id
 		else
 			comment._thread_root_id = comment.id

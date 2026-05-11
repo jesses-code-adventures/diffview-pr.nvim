@@ -32,7 +32,9 @@
 ---@field side? "LEFT"|"RIGHT"|string
 ---@field original_side? "LEFT"|"RIGHT"|string
 ---@field line? integer
+---@field start_line? integer
 ---@field original_line? integer
+---@field original_start_line? integer
 ---@field body? string
 ---@field user? DiffviewPRCommentUser
 ---@field created_at? string

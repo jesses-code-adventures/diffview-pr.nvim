@@ -18,6 +18,23 @@ local defaults = config_module.defaults
 local gh_async = github.gh_async
 local is_no_pr_error = github.is_no_pr_error
 
+---@param ctx DiffviewPRContext
+---@param start_line integer
+---@param end_line integer
+---@return DiffviewPRComment?
+local function overlapping_comment(ctx, start_line, end_line)
+	for _, comment in ipairs(comments.for_context(ctx)) do
+		local comment_start = comments.start_line(comment)
+		local comment_end = comments.line(comment)
+		if comment_start and comment_end then
+			comment_start, comment_end = math.min(comment_start, comment_end), math.max(comment_start, comment_end)
+			if start_line <= comment_end and end_line >= comment_start then
+				return comment
+			end
+		end
+	end
+end
+
 ---@param callback DiffviewPRCurrentPRCallback
 local function current_pr_async(callback)
 	if state.pr then
@@ -171,20 +188,36 @@ function M.open(line1, line2)
 		return notify(ctx_err, vim.log.levels.ERROR)
 	end
 
-	current_pr_async(function(pr, pr_err)
-		if not pr then
-			return notify(pr_err, vim.log.levels.ERROR)
+	local start_line = math.min(line1, line2)
+	local end_line = math.max(line1, line2)
+	fetch_comments(function()
+		local overlap = overlapping_comment(ctx, start_line, end_line)
+		if overlap then
+			local overlap_start = comments.start_line(overlap)
+			local overlap_end = comments.line(overlap)
+			local overlap_range = overlap_start == overlap_end and tostring(overlap_end) or string.format(
+				"%d-%d",
+				math.min(overlap_start, overlap_end),
+				math.max(overlap_start, overlap_end)
+			)
+			return notify("selected lines overlap an existing PR comment on line " .. overlap_range, vim.log.levels.ERROR)
 		end
 
-		windows.open_comment({
-			commit_id = head,
-			pr_number = pr.number,
-			pr_url = pr.url,
-			path = ctx.path,
-			side = ctx.side,
-			start_line = math.min(line1, line2),
-			line = math.max(line1, line2),
-		})
+		current_pr_async(function(pr, pr_err)
+			if not pr then
+				return notify(pr_err, vim.log.levels.ERROR)
+			end
+
+			windows.open_comment({
+				commit_id = head,
+				pr_number = pr.number,
+				pr_url = pr.url,
+				path = ctx.path,
+				side = ctx.side,
+				start_line = start_line,
+				line = end_line,
+			})
+		end)
 	end)
 end
 
