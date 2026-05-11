@@ -3,6 +3,7 @@ local M = {}
 ---@type DiffviewPRConfig
 M.defaults = {
 	comment_style = "minimal",
+	virtual_text_position = "inline",
 	keymaps = {
 		enabled = true,
 		create_comment = "<leader>pc",

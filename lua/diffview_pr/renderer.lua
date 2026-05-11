@@ -74,6 +74,22 @@ local function comment_virt_lines(comment_list, active)
 	return inline_comment_lines(comment_list, active)
 end
 
+---@param virt_lines DiffviewPRVirtLine[]
+---@return table
+local function comment_extmark_opts(virt_lines)
+	local position = config.virtual_text_position == "inline" and "eol" or "overlay"
+	local opts = {
+		virt_text = virt_lines[1],
+		virt_text_pos = position,
+	}
+
+	if #virt_lines > 1 then
+		opts.virt_lines = vim.list_slice(virt_lines, 2)
+	end
+
+	return opts
+end
+
 ---@param bufnr integer
 ---@return nil
 local function rerender_buffer(bufnr)
@@ -105,7 +121,7 @@ function M.render_comments(bufnr, ctx)
 
 	local comments_by_line = {}
 	for _, comment in ipairs(line_comments) do
-		local line = math.min(comments.line(comment), line_count)
+		local line = math.min(comments.line(comment) or 1, line_count)
 		comment._render_line = line
 		comments_by_line[line] = comments_by_line[line] or {}
 		table.insert(comments_by_line[line], comment)
@@ -116,10 +132,7 @@ function M.render_comments(bufnr, ctx)
 	local active_line = vim.api.nvim_get_current_buf() == bufnr and vim.api.nvim_win_get_cursor(0)[1] or nil
 
 	for line, line_comments in pairs(comments_by_line) do
-		vim.api.nvim_buf_set_extmark(bufnr, ns, line - 1, 0, {
-			virt_lines = comment_virt_lines(line_comments, line == active_line),
-			virt_lines_above = config.comment_style == "minimal",
-		})
+		vim.api.nvim_buf_set_extmark(bufnr, ns, line - 1, 0, comment_extmark_opts(comment_virt_lines(line_comments, line == active_line)))
 	end
 end
 

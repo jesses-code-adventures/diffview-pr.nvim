@@ -16,6 +16,7 @@
 
 ---@class DiffviewPRConfig
 ---@field comment_style "minimal"|"expanded"|string
+---@field virtual_text_position "inline"|"overlay"|string
 ---@field keymaps DiffviewPRConfigKeymaps
 
 ---@class DiffviewPRPullRequest
@@ -65,6 +66,7 @@
 ---@field side? string
 ---@field start_line? integer
 ---@field line? integer
+---@field subject_type? "line"|"line_context"|string
 
 ---@alias DiffviewPRAsyncCallback fun(out: string?, err: string?)
 ---@alias DiffviewPRCurrentPRCallback fun(pr: DiffviewPRPullRequest?, err: string?, no_pr?: boolean)

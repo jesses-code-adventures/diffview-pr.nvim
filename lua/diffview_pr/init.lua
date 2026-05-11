@@ -15,6 +15,7 @@ local windows = require("diffview_pr.windows")
 local augroup = vim.api.nvim_create_augroup("diffview_pr", { clear = true })
 local config = config_module.values
 local defaults = config_module.defaults
+local gh = github.gh
 local gh_async = github.gh_async
 local is_no_pr_error = github.is_no_pr_error
 
@@ -33,6 +34,82 @@ local function overlapping_comment(ctx, start_line, end_line)
 			end
 		end
 	end
+end
+
+---@param header string
+---@return integer?, integer?
+local function parse_hunk_start(header)
+	local old_start, new_start = header:match("^@@ %-(%d+)[,%d]* %+(%d+)[,%d]* @@")
+	return tonumber(old_start), tonumber(new_start)
+end
+
+---@param ctx DiffviewPRContext
+---@return table<integer, boolean>?, string?
+local function changed_lines_for_context(ctx)
+	local diff, err = gh({ "pr", "diff", "--patch" })
+	if not diff then
+		return nil, err
+	end
+
+	local lines = {}
+	local old_path
+	local new_path
+	local old_line
+	local new_line
+
+	for _, diff_line in ipairs(vim.split(diff, "\n", { plain = true })) do
+		local diff_old_path, diff_new_path = diff_line:match("^diff %-%-git a/(.-) b/(.+)$")
+		if diff_old_path and diff_new_path then
+			old_path = diff_old_path
+			new_path = diff_new_path
+			old_line = nil
+			new_line = nil
+		else
+			local parsed_old_line, parsed_new_line = parse_hunk_start(diff_line)
+			if parsed_old_line and parsed_new_line then
+				old_line = parsed_old_line
+				new_line = parsed_new_line
+			elseif old_line and new_line then
+				local prefix = diff_line:sub(1, 1)
+				if prefix == "+" and diff_line:sub(1, 3) ~= "+++" then
+					if ctx.side == "RIGHT" and new_path == ctx.path then
+						lines[new_line] = true
+					end
+					new_line = new_line + 1
+				elseif prefix == "-" and diff_line:sub(1, 3) ~= "---" then
+					if ctx.side == "LEFT" and old_path == ctx.path then
+						lines[old_line] = true
+					end
+					old_line = old_line + 1
+				else
+					old_line = old_line + 1
+					new_line = new_line + 1
+				end
+			end
+		end
+	end
+
+	return lines, nil
+end
+
+---@param lines table<integer, boolean>
+---@param start_line integer
+---@param end_line integer
+---@return integer?
+local function first_unchanged_line(lines, start_line, end_line)
+	for line = start_line, end_line do
+		if not lines[line] then
+			return line
+		end
+	end
+end
+
+---@param lines table<integer, boolean>
+---@param start_line integer
+---@param end_line integer
+---@return boolean
+local function all_lines_changed(lines, start_line, end_line)
+	return first_unchanged_line(lines, start_line, end_line) == nil
 end
 
 ---@param callback DiffviewPRCurrentPRCallback
@@ -98,8 +175,8 @@ local function fetch_comments(callback)
 		end
 
 		gh_async({ "api", "--paginate", "repos/{owner}/{repo}/pulls/" .. pr.number .. "/comments" }, function(out, err)
-			state.fetching = false
 			if not out then
+				state.fetching = false
 				notify(err, vim.log.levels.WARN)
 				return
 			end
@@ -110,6 +187,8 @@ local function fetch_comments(callback)
 				return
 			end
 
+
+			state.fetching = false
 			state.comments = comments.hydrate_threads(parsed_comments)
 			local callbacks = state.fetch_callbacks
 			state.fetch_callbacks = {}
@@ -173,6 +252,11 @@ function M.setup(opts)
 		notify("invalid comment_style: " .. tostring(config.comment_style), vim.log.levels.WARN)
 		config.comment_style = defaults.comment_style
 	end
+
+	if config.virtual_text_position ~= "inline" and config.virtual_text_position ~= "overlay" then
+		notify("invalid virtual_text_position: " .. tostring(config.virtual_text_position), vim.log.levels.WARN)
+		config.virtual_text_position = defaults.virtual_text_position
+	end
 end
 
 ---@param line1 integer
@@ -191,6 +275,11 @@ function M.open(line1, line2)
 	local start_line = math.min(line1, line2)
 	local end_line = math.max(line1, line2)
 	fetch_comments(function()
+		local changed_lines, changed_lines_err = changed_lines_for_context(ctx)
+		if not changed_lines then
+			return notify(changed_lines_err, vim.log.levels.ERROR)
+		end
+
 		local overlap = overlapping_comment(ctx, start_line, end_line)
 		if overlap then
 			local overlap_start = comments.start_line(overlap)
@@ -216,6 +305,7 @@ function M.open(line1, line2)
 				side = ctx.side,
 				start_line = start_line,
 				line = end_line,
+				subject_type = all_lines_changed(changed_lines, start_line, end_line) and "line" or "line_context",
 			})
 		end)
 	end)
@@ -270,7 +360,7 @@ function M.submit(comment, callback)
 		"line=" .. comment.line,
 	}
 
-	if comment.start_line ~= comment.line then
+	if comment.subject_type ~= "line_context" and comment.start_line ~= comment.line then
 		vim.list_extend(args, {
 			"-F",
 			"start_line=" .. comment.start_line,

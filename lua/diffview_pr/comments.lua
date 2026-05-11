@@ -138,7 +138,7 @@ function M.for_context(ctx)
 
 	local comments = {}
 	for _, comment in ipairs(state.comments) do
-		if json_value(comment.path) == ctx.path and M.side(comment) == ctx.side and M.line(comment) then
+		if json_value(comment.path) == ctx.path and M.side(comment) == ctx.side then
 			table.insert(comments, comment)
 		end
 	end
@@ -172,10 +172,10 @@ function M.targets_for_view(view)
 	local targets = {}
 
 	for _, comment in ipairs(state.comments or {}) do
-		local line = M.line(comment)
+		local line = M.line(comment) or 1
 		local path = json_value(comment.path)
 		local file_info = path and order[path]
-		if line and file_info then
+		if file_info then
 			local side = M.side(comment)
 			local key = table.concat({ path, side, tostring(line) }, "\0")
 			if not seen[key] then
