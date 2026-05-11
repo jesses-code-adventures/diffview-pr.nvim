@@ -2,6 +2,17 @@ local M = {}
 local state = require("diffview_pr.state")
 local diffview = require("diffview_pr.diffview")
 
+---@generic T
+---@param value T|userdata|nil
+---@return T|nil
+local function json_value(value)
+	if value == vim.NIL then
+		return nil
+	end
+
+	return value
+end
+
 ---@param pr_or_number DiffviewPRPullRequest|integer|string
 ---@return string
 function M.pr_display_name(pr_or_number)
@@ -12,13 +23,21 @@ end
 ---@param comment DiffviewPRComment
 ---@return integer?
 function M.line(comment)
-	return comment.line or comment.original_line
+	local line = json_value(comment.line)
+	if type(line) == "number" then
+		return line
+	end
+
+	local original_line = json_value(comment.original_line)
+	if type(original_line) == "number" then
+		return original_line
+	end
 end
 
 ---@param comment DiffviewPRComment
 ---@return string
 function M.side(comment)
-	return comment.side or comment.original_side or "RIGHT"
+	return json_value(comment.side) or json_value(comment.original_side) or "RIGHT"
 end
 
 ---@param comment DiffviewPRComment
@@ -70,11 +89,11 @@ function M.hydrate_threads(comments)
 	for _, comment in ipairs(comments) do
 		local parent = comment.in_reply_to_id and by_id[comment.in_reply_to_id]
 		if parent then
-			comment.path = comment.path or parent.path
-			comment.side = comment.side or parent.side
-			comment.original_side = comment.original_side or parent.original_side
-			comment.line = comment.line or parent.line
-			comment.original_line = comment.original_line or parent.original_line
+			comment.path = json_value(comment.path) or json_value(parent.path)
+			comment.side = json_value(comment.side) or json_value(parent.side)
+			comment.original_side = json_value(comment.original_side) or json_value(parent.original_side)
+			comment.line = json_value(comment.line) or json_value(parent.line)
+			comment.original_line = json_value(comment.original_line) or json_value(parent.original_line)
 			comment._thread_root_id = parent._thread_root_id or parent.id
 		else
 			comment._thread_root_id = comment.id
@@ -101,7 +120,7 @@ function M.for_context(ctx)
 
 	local comments = {}
 	for _, comment in ipairs(state.comments) do
-		if comment.path == ctx.path and M.side(comment) == ctx.side and M.line(comment) then
+		if json_value(comment.path) == ctx.path and M.side(comment) == ctx.side and M.line(comment) then
 			table.insert(comments, comment)
 		end
 	end
@@ -136,16 +155,17 @@ function M.targets_for_view(view)
 
 	for _, comment in ipairs(state.comments or {}) do
 		local line = M.line(comment)
-		local file_info = comment.path and order[comment.path]
+		local path = json_value(comment.path)
+		local file_info = path and order[path]
 		if line and file_info then
 			local side = M.side(comment)
-			local key = table.concat({ comment.path, side, tostring(line) }, "\0")
+			local key = table.concat({ path, side, tostring(line) }, "\0")
 			if not seen[key] then
 				seen[key] = true
 				table.insert(targets, {
 					file = file_info.file,
 					file_index = file_info.index,
-					path = comment.path,
+					path = path,
 					side = side,
 					line = line,
 				})
