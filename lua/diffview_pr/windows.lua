@@ -23,12 +23,16 @@ end
 
 ---@return nil
 function M.close_review()
-	for _, win in ipairs(state.review_windows) do
+	local wins = state.review_windows
+	state.review_windows = {}
+	local save_ei = vim.o.eventignore
+	vim.o.eventignore = save_ei == "" and "CursorMoved,CursorMovedI" or (save_ei .. ",CursorMoved,CursorMovedI")
+	for _, win in ipairs(wins) do
 		if vim.api.nvim_win_is_valid(win) then
 			vim.api.nvim_win_close(win, true)
 		end
 	end
-	state.review_windows = {}
+	vim.o.eventignore = save_ei
 end
 
 ---@param direction integer
